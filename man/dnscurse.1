@@ -1,0 +1,135 @@
+.TH DNSCURSE 1 "2026-03-16" "dnscurse 0.2.0" "User Commands"
+.SH NAME
+dnscurse \- trace DNS iterative resolution step by step
+.SH SYNOPSIS
+.B dnscurse
+.RB [ \-t
+.IR type ]
+.RB [ \-\-timeout
+.IR seconds ]
+.RB [ \-\-compact ]
+.I domain
+.SH DESCRIPTION
+.B dnscurse
+performs iterative DNS resolution from the root servers, displaying each
+delegation step the way a full-service resolver would walk them.
+Unlike a stub resolver that sends a single recursive query, dnscurse
+sends every query with the RD (Recursion Desired) bit cleared and follows
+referrals itself, printing what each server returned.
+.PP
+This makes the delegation chain transparent: you can see which nameserver
+is responsible for each zone, what glue records were provided, and exactly
+where resolution succeeded or failed.
+.PP
+By default each step is shown as an indented block.
+The domain name in the header is coloured to highlight the zone that the
+queried server is authoritative for (yellow), with the remaining labels
+dimmed.
+Colour is suppressed automatically when stdout is not a terminal.
+.SH OPTIONS
+.TP
+.I domain
+The fully-qualified or relative domain name to resolve.
+A trailing dot is accepted but not required.
+.TP
+.BR \-t \ \fItype\fR ", " \-\-type \ \fItype\fR
+DNS record type to query.
+Accepted values:
+.BR A ,
+.BR AAAA ,
+.BR NS ,
+.BR CNAME ,
+.BR SOA ,
+.BR MX ,
+.BR TXT ,
+.BR PTR .
+Default:
+.BR A .
+.TP
+.BR \-\-timeout \ \fIseconds\fR
+Per-query UDP timeout in seconds (floating-point).
+Default:
+.BR 5.0 .
+.TP
+.B \-\-compact
+Print one line per step instead of the full block format:
+.IP
+.I server-ip
+.RI ( "query-name query-type" ", " result )
+.PP
+The final answer summary and step count are omitted in compact mode.
+.SH OUTPUT
+.SS Block format (default)
+Each step is rendered as:
+.PP
+.nf
+    www.example.com
+      server  a.root-servers.net (198.41.0.4)
+      rcode   NOERROR
+      result  referral \(-> a.gtld-servers.net.
+      time    45.3ms
+.fi
+.PP
+After all steps, the resolved records are shown as a dig-style answer
+summary followed by a step count and total elapsed time.
+.SS Compact format (\-\-compact)
+.nf
+    198.41.0.4 (www.example.com A, referral \(-> a.gtld-servers.net.)
+    192.5.6.30 (www.example.com A, referral \(-> a.iana-servers.net.)
+    199.43.135.53 (www.example.com A, A 93.184.216.34)
+.fi
+.SH EXAMPLES
+Resolve the A record for
+.IR example.com :
+.PP
+.nf
+    dnscurse example.com
+.fi
+.PP
+Resolve the AAAA record for
+.IR google.com :
+.PP
+.nf
+    dnscurse -t AAAA google.com
+.fi
+.PP
+Show a compact trace of a deeper delegation chain:
+.PP
+.nf
+    dnscurse --compact www.github.com
+.fi
+.PP
+Confirm that a domain does not exist:
+.PP
+.nf
+    dnscurse nope.invalid
+.fi
+.PP
+Use a shorter timeout for unreachable servers:
+.PP
+.nf
+    dnscurse --timeout 2 slow.example.com
+.fi
+.SH EXIT STATUS
+.TP
+.B 0
+Resolution completed (answer, NXDOMAIN, or NODATA \(em any definitive result).
+.TP
+.B 1
+No resolution steps were produced (internal error or empty resolver output).
+.SH NOTES
+Queries are sent over UDP with the RD bit cleared.
+dnscurse does not fall back to TCP and does not validate DNSSEC signatures.
+It is intended as an educational and debugging aid, not a production resolver.
+.PP
+Root server addresses are compiled in from the IANA root hints file and are
+updated with each release.
+.SH SEE ALSO
+.BR dig (1),
+.BR host (1),
+.BR nslookup (1),
+.BR resolv.conf (5)
+.PP
+RFC\ 1034 \(em Domain Names \(em Concepts and Facilities
+.br
+RFC\ 1035 \(em Domain Names \(em Implementation and Specification

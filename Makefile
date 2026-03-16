@@ -3,7 +3,7 @@ PYTHON := $(VENV)/bin/python
 PIP    := $(VENV)/bin/pip3
 PYTEST := $(VENV)/bin/pytest
 
-.PHONY: all build run test clean install uninstall
+.PHONY: all build run test clean install uninstall man
 
 $(VENV):
 	python3 -m venv $(VENV)
@@ -22,6 +22,9 @@ install:
 
 uninstall:
 	pipx uninstall dnscurse
+
+man:
+	mandoc -a man/dnscurse.1
 
 clean:
 	rm -rf $(VENV) .pytest_cache *.egg-info

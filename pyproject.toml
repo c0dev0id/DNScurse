@@ -20,6 +20,9 @@ dev = [
 [project.scripts]
 dnscurse = "dnscurse.cli:main"
 
+[tool.setuptools.data-files]
+"share/man/man1" = ["man/dnscurse.1"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-v -s"
