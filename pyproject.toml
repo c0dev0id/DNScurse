@@ -20,6 +20,9 @@ dev = [
 [project.scripts]
 dnscurse = "dnscurse.cli:main"
 
+[tool.setuptools.packages.find]
+include = ["dnscurse*"]
+
 [tool.setuptools.data-files]
 "share/man/man1" = ["man/dnscurse.1"]
 
