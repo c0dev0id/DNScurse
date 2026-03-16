@@ -148,7 +148,7 @@ def main(argv: list[str] | None = None) -> int:
         help="Per-query UDP timeout in seconds (default: 5)",
     )
     parser.add_argument(
-        "--compact",
+        "-c", "--compact",
         action="store_true",
         help="One-line-per-step output: server IP, query, and result",
     )

@@ -7,7 +7,7 @@ dnscurse \- trace DNS iterative resolution step by step
 .IR type ]
 .RB [ \-\-timeout
 .IR seconds ]
-.RB [ \-\-compact ]
+.RB [ \-c ]
 .I domain
 .SH DESCRIPTION
 .B dnscurse
@@ -51,7 +51,7 @@ Per-query UDP timeout in seconds (floating-point).
 Default:
 .BR 5.0 .
 .TP
-.B \-\-compact
+.BR \-c ", " \-\-compact
 Print one line per step instead of the full block format:
 .IP
 .I server-ip

@@ -58,14 +58,14 @@ make install   # uses pipx
 ## Usage
 
 ```
-dnscurse [-t TYPE] [--timeout SECONDS] [--compact] domain
+dnscurse [-t TYPE] [--timeout SECONDS] [-c] domain
 ```
 
 | Option | Default | Description |
 |---|---|---|
 | `-t`, `--type` | `A` | Record type: `A`, `AAAA`, `NS`, `CNAME`, `SOA`, `MX`, `TXT`, `PTR` |
 | `--timeout` | `5.0` | Per-query UDP timeout in seconds |
-| `--compact` | off | One line per step (see below) |
+| `-c`, `--compact` | off | One line per step (see below) |
 
 ---
 
