@@ -2,7 +2,7 @@ VENV   := .venv
 PYTHON := $(VENV)/bin/python
 PIP    := $(VENV)/bin/pip3
 
-.PHONY: build run test clean install
+.PHONY: build run test clean install uninstall
 
 $(VENV):
 	python3 -m venv $(VENV)
@@ -18,6 +18,9 @@ test: build
 
 install:
 	pipx install .
+
+uninstall:
+	pipx uninstall dnscurse
 
 clean:
 	rm -rf $(VENV) .pytest_cache *.egg-info
