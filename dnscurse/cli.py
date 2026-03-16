@@ -27,6 +27,20 @@ _YELLOW = "\033[33m"
 _RESET  = "\033[0m"
 _DASH   = "\u2014"
 
+# 6 colors for hierarchy levels, cycling if depth exceeds 6
+_LEVEL_COLORS = [
+    "\033[31m",  # red
+    "\033[32m",  # green
+    "\033[33m",  # yellow
+    "\033[35m",  # magenta
+    "\033[36m",  # cyan
+    "\033[37m",  # white
+]
+
+
+def _level_color(depth: int) -> str:
+    return _LEVEL_COLORS[depth % len(_LEVEL_COLORS)]
+
 
 def _colorize_domain(domain: str, zone: str | None, color: bool = True) -> str:
     """Return domain string with the resolved zone highlighted in yellow.
@@ -90,9 +104,97 @@ def _format_result_line(step: RecursionStep) -> str:
     return "NODATA"
 
 
-def _format_compact_line(step: RecursionStep) -> str:
-    """One-line compact summary: '<server_ip> (<query_name> <query_type>, <result>)'"""
-    return f"{step.server_ip} ({step.query_name} {step.query_type}, {_format_result_line(step)})"
+def _format_tree(steps: list[RecursionStep], color: bool = True) -> str:
+    """Format the resolution chain as a delegation tree.
+
+    The query name is the root; each referral becomes a child node showing
+    which zone was delegated and which server answered. The final leaf is
+    the answer record (or error).
+
+      dalek.home.codevoid.de A
+        . (a.root-servers.net)
+          └── de. (a.nic.de)
+              └── codevoid.de. (ns1.codevoid.de)
+                  └── home.codevoid.de. (ns.home.codevoid.de)
+                      └── A 1.2.3.4
+    """
+    if not steps:
+        return ""
+
+    first = steps[0]
+    lines = [f"{first.query_name} {first.query_type}"]
+
+    # Build (zone_label, server_name) pairs for each node.
+    # Node 0 is always the root zone ".".
+    # Node N's zone label is what node N-1 referred to.
+    nodes: list[tuple[str, str]] = [(".", first.server_name)]
+    for i, step in enumerate(steps[1:], start=0):
+        zone = get_delegated_zone(steps[i]) or "?"
+        nodes.append((zone.rstrip(".") + ".", step.server_name))
+
+    # Color the query name: each label colored by its delegation depth,
+    # matching the corresponding tree node color (rightmost label = depth 1).
+    query_labels = first.query_name.rstrip(".").split(".")
+    if color:
+        colored_labels = [
+            f"{_level_color(i + 1)}{label}{_RESET}"
+            for i, label in enumerate(reversed(query_labels))
+        ]
+        colored_labels.reverse()
+        lines[0] = ".".join(colored_labels) + f" {first.query_type}"
+
+    def _color_zone(zone: str, depth: int) -> str:
+        """Color only the leftmost label of a zone — the newly delegated part.
+
+        e.g. depth=2, zone="example.com." → "[yellow]example[reset].com."
+        The root "." is left uncolored since it isn't a label.
+        """
+        if not color:
+            return zone
+        if zone == ".":
+            return f"{_DIM}.{_RESET}"
+        # zone is like "com." or "example.com." — split off first label
+        dot = zone.find(".")
+        first = zone[:dot]
+        rest = zone[dot:]  # includes the trailing dot
+        c = _level_color(depth)
+        return f"{c}{first}{_RESET}{rest}"
+
+    con = f"{_DIM}\u2514\u2500\u2500 {_RESET}" if color else "\u2514\u2500\u2500 "
+
+    for depth, (zone, server) in enumerate(nodes):
+        if depth == 0:
+            indent = "  "
+            connector = ""
+        else:
+            indent = "    " * depth
+            connector = con
+        lines.append(f"{indent}{connector}{_color_zone(zone, depth)} ({server})")
+
+    # Leaf: answer record(s) or error — color only the record type label
+    final = steps[-1]
+    leaf_depth = len(nodes)
+    leaf_indent = "    " * leaf_depth + con
+    lc = _level_color(leaf_depth) if color else ""
+    lr = _RESET if color else ""
+    # The leaf label is the leftmost label of the query name — the part
+    # not covered by any delegation zone, colored at the leaf depth.
+    leaf_label = first.query_name.rstrip(".").split(".")[0]
+    leaf_label_str = f"{lc}{leaf_label}{lr} " if color else ""
+
+    if final.error:
+        lines.append(f"{leaf_indent}{leaf_label_str}error: {final.error}")
+    elif final.response and final.response.answer:
+        for rrset in final.response.answer:
+            rtype = dns.rdatatype.to_text(rrset.rdtype)
+            for rr in rrset:
+                lines.append(f"{leaf_indent}{leaf_label_str}{rtype} {rr}")
+    elif final.response:
+        lines.append(f"{leaf_indent}{leaf_label_str}{dns.rcode.to_text(final.response.rcode())}")
+    else:
+        lines.append(f"{leaf_indent}{leaf_label_str}(no response)")
+
+    return "\n".join(lines)
 
 
 def _format_step_block(step: RecursionStep, color: bool = True) -> str:
@@ -150,7 +252,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "-c", "--compact",
         action="store_true",
-        help="One-line-per-step output: server IP, query, and result",
+        help="Compact tree view of the delegation chain",
     )
 
     args = parser.parse_args(argv)
@@ -162,12 +264,11 @@ def main(argv: list[str] | None = None) -> int:
         print("No resolution steps.")
         return 1
 
-    if args.compact:
-        for step in steps:
-            print(_format_compact_line(step))
-        return 0
-
     color = sys.stdout.isatty()
+
+    if args.compact:
+        print(_format_tree(steps, color=color))
+        return 0
 
     for step in steps:
         print(_format_step_block(step, color=color))
