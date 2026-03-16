@@ -20,4 +20,5 @@ install:
 	pipx install .
 
 clean:
-	rm -rf $(VENV) __pycache__ .pytest_cache
+	rm -rf $(VENV) .pytest_cache *.egg-info
+	find . -name __pycache__ -exec rm -rf {} +

@@ -44,8 +44,8 @@ def _step_response_summary(step: RecursionStep) -> str:
     if is_referral(resp):
         ns_names = get_referral_ns_names(resp)
         if ns_names:
-            return "-> " + ", ".join(ns_names)
-        return "-> (referral)"
+            return "→ " + ", ".join(ns_names)
+        return "→ (referral)"
 
     return "NODATA"
 
@@ -123,10 +123,11 @@ def main(argv: list[str] | None = None) -> int:
     final = steps[-1]
     print()
     if final.response and final.response.answer:
+        print("  Answer:")
         for rrset in final.response.answer:
             for rr in rrset:
                 rtype = dns.rdatatype.to_text(rrset.rdtype)
-                print(f"  {rrset.name}  {rtype}  {rr}")
+                print(f"    {rrset.name}  {rtype}  {rr}")
     elif final.error:
         print(f"  Resolution failed: {final.error}")
     elif final.response and final.response.rcode() != dns.rcode.NOERROR:
