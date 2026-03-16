@@ -89,6 +89,11 @@ def _format_result_line(step: RecursionStep) -> str:
     return "NODATA"
 
 
+def _format_compact_line(step: RecursionStep) -> str:
+    """One-line compact summary: '<server_ip> (<query_name> <query_type>, <result>)'"""
+    return f"{step.server_ip} ({step.query_name} {step.query_type}, {_format_result_line(step)})"
+
+
 def _format_step_block(step: RecursionStep, color: bool = True) -> str:
     """Format one resolution step as an indented block.
 
@@ -141,6 +146,11 @@ def main(argv: list[str] | None = None) -> int:
         default=5.0,
         help="Per-query UDP timeout in seconds (default: 5)",
     )
+    parser.add_argument(
+        "--compact",
+        action="store_true",
+        help="One-line-per-step output: server IP, query, and result",
+    )
 
     args = parser.parse_args(argv)
     rdtype = dns.rdatatype.from_text(args.type)
@@ -150,6 +160,11 @@ def main(argv: list[str] | None = None) -> int:
     if not steps:
         print("No resolution steps.")
         return 1
+
+    if args.compact:
+        for step in steps:
+            print(_format_compact_line(step))
+        return 0
 
     color = sys.stdout.isatty()
 
