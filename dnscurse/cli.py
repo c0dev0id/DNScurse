@@ -10,6 +10,7 @@ import dns.rdatatype
 
 from .models import (
     RecursionStep,
+    format_rrset,
     get_referral_ns_names,
     is_referral,
 )
@@ -37,8 +38,7 @@ def _step_response_summary(step: RecursionStep) -> str:
         parts = []
         for rrset in resp.answer:
             rtype = dns.rdatatype.to_text(rrset.rdtype)
-            for rr in rrset:
-                parts.append(f"{rtype} {rr}")
+            parts.extend(f"{rtype} {rr}" for rr in rrset)
         return ", ".join(parts)
 
     if is_referral(resp):
@@ -125,9 +125,8 @@ def main(argv: list[str] | None = None) -> int:
     if final.response and final.response.answer:
         print("  Answer:")
         for rrset in final.response.answer:
-            for rr in rrset:
-                rtype = dns.rdatatype.to_text(rrset.rdtype)
-                print(f"    {rrset.name}  {rtype}  {rr}")
+            for line in format_rrset(rrset):
+                print(f"    {line}")
     elif final.error:
         print(f"  Resolution failed: {final.error}")
     elif final.response and final.response.rcode() != dns.rcode.NOERROR:

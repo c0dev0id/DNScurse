@@ -22,3 +22,4 @@ install:
 clean:
 	rm -rf $(VENV) .pytest_cache *.egg-info
 	find . -name __pycache__ -exec rm -rf {} +
+
