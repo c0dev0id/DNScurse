@@ -104,6 +104,13 @@ def resolve(name: str, rdtype: int = dns.rdatatype.A,
     server_ip = ROOT_SERVERS[0][1]
     server_name = ROOT_SERVERS[0][0]
 
+    # RFC 1034 Section 5.3.3, Step 3: "if the response shows a
+    # server failure...the server is marked as bad and a new server
+    # is selected." We track sibling nameservers from the most recent
+    # referral so we can try alternatives when one returns SERVFAIL
+    # or REFUSED.
+    sibling_servers: list[tuple[str, str]] = []  # [(name, ip), ...]
+
     while step_num < MAX_STEPS:
         step_num += 1
         qtype_str = dns.rdatatype.to_text(current_rdtype)
@@ -133,10 +140,13 @@ def resolve(name: str, rdtype: int = dns.rdatatype.A,
             # error so the user can see exactly which server failed.
             # RFC 1034 Section 5.3.3, Step 3: "if the response shows a
             # network error or other failure, the server is marked as
-            # bad and a new server is selected" — we stop instead since
-            # this is a debug tool showing each step.
+            # bad and a new server is selected."
             step.error = str(exc)
             steps.append(step)
+            # Try the next sibling NS from the last referral if available.
+            if sibling_servers:
+                server_name, server_ip = sibling_servers.pop(0)
+                continue
             break
 
         step.response = response
@@ -151,10 +161,18 @@ def resolve(name: str, rdtype: int = dns.rdatatype.A,
         #   3 = NXDOMAIN — the domain name does not exist
         #   2 = SERVFAIL — the server failed to process the query
         #   5 = REFUSED  — policy refusal
-        # Any non-zero RCODE terminates resolution. For NXDOMAIN, the
-        # authority section typically contains a SOA record whose MINIMUM
-        # field sets the negative caching TTL (RFC 2308 Section 5).
+        #
+        # NXDOMAIN is authoritative — the name doesn't exist, so trying
+        # a sibling NS won't help. But SERVFAIL and REFUSED are server-
+        # specific problems. RFC 1034 Section 5.3.3 says: "if the
+        # response shows a server failure...the server is marked as bad
+        # and a new server is selected." We try sibling NS from the
+        # last referral before giving up.
         if response.rcode() != dns.rcode.NOERROR:
+            if response.rcode() in (dns.rcode.SERVFAIL, dns.rcode.REFUSED):
+                if sibling_servers:
+                    server_name, server_ip = sibling_servers.pop(0)
+                    continue
             break
 
         # --- Category: Answer ---
@@ -206,10 +224,21 @@ def resolve(name: str, rdtype: int = dns.rdatatype.A,
                 # and-egg problem. RFC 1034 Section 4.2.1 defines glue
                 # as "address records...necessary to allow DNS to
                 # function." RFC 7719 Section 6 formalizes the definition.
-                server_ip = glue_ips[0]
                 ns_names = get_referral_ns_names(response)
-                if ns_names:
-                    server_name = ns_names[0]
+
+                # RFC 1034 Section 5.3.3: "a new server is selected"
+                # upon failure. Build a list of sibling NS servers from
+                # this referral so we can fail over if the first returns
+                # SERVFAIL or REFUSED. We pair each glue IP with its
+                # corresponding NS name (falling back to the IP itself
+                # if we have more IPs than names).
+                sibling_servers = []
+                for i, ip in enumerate(glue_ips):
+                    sname = ns_names[i] if i < len(ns_names) else ip
+                    sibling_servers.append((sname, ip))
+
+                # Use the first candidate; the rest remain as fallbacks.
+                server_name, server_ip = sibling_servers.pop(0)
                 continue
 
             # No glue records. This happens when the NS name is in a

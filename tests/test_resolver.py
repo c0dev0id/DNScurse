@@ -303,6 +303,205 @@ class TestResolverReferralChain:
 
 
 # -----------------------------------------------------------------------
+# SERVFAIL / REFUSED sibling failover
+# -----------------------------------------------------------------------
+
+class TestSiblingFailover:
+    """EXPLANATION: RFC 1034 Section 5.3.3 says when a server fails, the
+    resolver should "mark it as bad and select a new server." When a
+    referral provides multiple NS records with glue, we should try the
+    next sibling NS if the first returns SERVFAIL or REFUSED, rather
+    than giving up immediately.
+    """
+
+    def test_servfail_tries_sibling_ns(self):
+        """EXPLANATION: When a referred NS returns SERVFAIL, the resolver
+        tries the next NS from the same referral. This is critical for
+        resilience — one broken nameserver shouldn't prevent resolution
+        if siblings are healthy.
+
+        Scenario:
+          1. Root -> referral to .com with two NS: ns1 (10.0.0.1) and ns2 (10.0.0.2)
+          2. ns1 returns SERVFAIL
+          3. Resolver retries with ns2
+          4. ns2 -> referral to example.com NS
+          5. Authoritative -> answer
+        """
+        def fake_send(name, rdtype, server_ip, timeout=5.0):
+            if server_ip == ROOT_SERVERS[0][1]:
+                return _msg(
+                    authority=[
+                        ("com.", dns.rdatatype.NS, 172800, "ns1.com."),
+                        ("com.", dns.rdatatype.NS, 172800, "ns2.com."),
+                    ],
+                    additional=[
+                        ("ns1.com.", dns.rdatatype.A, 172800, "10.0.0.1"),
+                        ("ns2.com.", dns.rdatatype.A, 172800, "10.0.0.2"),
+                    ],
+                )
+            if server_ip == "10.0.0.1":
+                return _msg(rcode=dns.rcode.SERVFAIL)
+            if server_ip == "10.0.0.2":
+                return _make_referral("example.com.", "ns.example.com.", "10.0.0.3")
+            if server_ip == "10.0.0.3":
+                return _make_answer("example.com.", "1.2.3.4")
+            raise RuntimeError(f"Unexpected: {name} @ {server_ip}")
+
+        with patch("dnscurse.resolver.send_query", side_effect=fake_send):
+            steps = resolve("example.com", dns.rdatatype.A)
+
+        print("\n  SERVFAIL sibling failover:")
+        for step in steps:
+            print(f"  {step.explain()}")
+            print()
+
+        # Step 1: root referral, Step 2: ns1 SERVFAIL, Step 3: ns2 referral, Step 4: answer
+        assert len(steps) == 4
+        assert steps[1].response.rcode() == dns.rcode.SERVFAIL
+        assert steps[1].server_ip == "10.0.0.1"
+        assert steps[2].server_ip == "10.0.0.2"
+        assert steps[3].response.answer
+        print("  ns1 returned SERVFAIL -> tried ns2 -> success")
+
+    def test_refused_tries_sibling_ns(self):
+        """EXPLANATION: REFUSED (rcode=5) is a policy refusal — the server
+        exists but won't answer our query. Like SERVFAIL, we should try
+        sibling NS from the referral before giving up.
+        """
+        def fake_send(name, rdtype, server_ip, timeout=5.0):
+            if server_ip == ROOT_SERVERS[0][1]:
+                return _msg(
+                    authority=[
+                        ("com.", dns.rdatatype.NS, 172800, "ns1.com."),
+                        ("com.", dns.rdatatype.NS, 172800, "ns2.com."),
+                    ],
+                    additional=[
+                        ("ns1.com.", dns.rdatatype.A, 172800, "10.0.0.1"),
+                        ("ns2.com.", dns.rdatatype.A, 172800, "10.0.0.2"),
+                    ],
+                )
+            if server_ip == "10.0.0.1":
+                return _msg(rcode=dns.rcode.REFUSED)
+            if server_ip == "10.0.0.2":
+                return _make_answer("example.com.", "1.2.3.4")
+            raise RuntimeError(f"Unexpected: {name} @ {server_ip}")
+
+        with patch("dnscurse.resolver.send_query", side_effect=fake_send):
+            steps = resolve("example.com", dns.rdatatype.A)
+
+        assert len(steps) == 3
+        assert steps[1].response.rcode() == dns.rcode.REFUSED
+        assert steps[2].response.answer
+        print("\n  REFUSED -> tried sibling -> got answer")
+
+    def test_all_siblings_fail_then_stops(self):
+        """EXPLANATION: If ALL sibling NS from a referral return SERVFAIL,
+        resolution stops. The last failing response is the final step.
+        """
+        def fake_send(name, rdtype, server_ip, timeout=5.0):
+            if server_ip == ROOT_SERVERS[0][1]:
+                return _msg(
+                    authority=[
+                        ("com.", dns.rdatatype.NS, 172800, "ns1.com."),
+                        ("com.", dns.rdatatype.NS, 172800, "ns2.com."),
+                        ("com.", dns.rdatatype.NS, 172800, "ns3.com."),
+                    ],
+                    additional=[
+                        ("ns1.com.", dns.rdatatype.A, 172800, "10.0.0.1"),
+                        ("ns2.com.", dns.rdatatype.A, 172800, "10.0.0.2"),
+                        ("ns3.com.", dns.rdatatype.A, 172800, "10.0.0.3"),
+                    ],
+                )
+            # All three siblings fail
+            return _msg(rcode=dns.rcode.SERVFAIL)
+
+        with patch("dnscurse.resolver.send_query", side_effect=fake_send):
+            steps = resolve("example.com", dns.rdatatype.A)
+
+        print("\n  All siblings SERVFAIL:")
+        for step in steps:
+            print(f"  {step.explain()}")
+            print()
+
+        # 1 root + 3 SERVFAIL attempts
+        assert len(steps) == 4
+        assert all(
+            steps[i].response.rcode() == dns.rcode.SERVFAIL
+            for i in range(1, 4)
+        )
+        print("  All 3 siblings returned SERVFAIL -> resolution stopped")
+
+    def test_nxdomain_does_not_try_siblings(self):
+        """EXPLANATION: NXDOMAIN is authoritative — the domain does not
+        exist. Trying a sibling NS won't change this, so we stop
+        immediately without failover.
+        """
+        def fake_send(name, rdtype, server_ip, timeout=5.0):
+            if server_ip == ROOT_SERVERS[0][1]:
+                return _msg(
+                    authority=[
+                        ("com.", dns.rdatatype.NS, 172800, "ns1.com."),
+                        ("com.", dns.rdatatype.NS, 172800, "ns2.com."),
+                    ],
+                    additional=[
+                        ("ns1.com.", dns.rdatatype.A, 172800, "10.0.0.1"),
+                        ("ns2.com.", dns.rdatatype.A, 172800, "10.0.0.2"),
+                    ],
+                )
+            if server_ip == "10.0.0.1":
+                return _make_nxdomain("com.")
+            raise RuntimeError(f"Unexpected: {name} @ {server_ip}")
+
+        with patch("dnscurse.resolver.send_query", side_effect=fake_send):
+            steps = resolve("nope.com", dns.rdatatype.A)
+
+        # Should NOT try ns2 — NXDOMAIN is definitive
+        assert len(steps) == 2
+        assert steps[1].response.rcode() == dns.rcode.NXDOMAIN
+        print("\n  NXDOMAIN — no sibling failover (authoritative negative)")
+
+    def test_network_error_tries_sibling_ns(self):
+        """EXPLANATION: Network failures (timeout, unreachable) should also
+        trigger sibling failover. RFC 1034 Section 5.3.3 treats network
+        errors the same as server failures for server selection.
+        """
+        call_count = 0
+
+        def fake_send(name, rdtype, server_ip, timeout=5.0):
+            nonlocal call_count
+            call_count += 1
+            if server_ip == ROOT_SERVERS[0][1]:
+                return _msg(
+                    authority=[
+                        ("com.", dns.rdatatype.NS, 172800, "ns1.com."),
+                        ("com.", dns.rdatatype.NS, 172800, "ns2.com."),
+                    ],
+                    additional=[
+                        ("ns1.com.", dns.rdatatype.A, 172800, "10.0.0.1"),
+                        ("ns2.com.", dns.rdatatype.A, 172800, "10.0.0.2"),
+                    ],
+                )
+            if server_ip == "10.0.0.1":
+                raise OSError("Connection timed out")
+            if server_ip == "10.0.0.2":
+                return _make_answer("example.com.", "1.2.3.4")
+            raise RuntimeError(f"Unexpected: {name} @ {server_ip}")
+
+        with patch("dnscurse.resolver.send_query", side_effect=fake_send):
+            steps = resolve("example.com", dns.rdatatype.A)
+
+        print("\n  Network error sibling failover:")
+        for step in steps:
+            print(f"  {step.explain()}")
+            print()
+
+        assert len(steps) == 3
+        assert steps[1].error == "Connection timed out"
+        assert steps[2].response.answer
+        print("  ns1 timed out -> tried ns2 -> got answer")
+
+
+# -----------------------------------------------------------------------
 # Root server configuration
 # -----------------------------------------------------------------------
 
