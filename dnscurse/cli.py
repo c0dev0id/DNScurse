@@ -25,6 +25,7 @@ _CLI_TYPES = ["A", "AAAA", "NS", "CNAME", "SOA", "MX", "TXT", "PTR"]
 _DIM    = "\033[2m"
 _YELLOW = "\033[33m"
 _RESET  = "\033[0m"
+_DASH   = _DASH
 
 
 def _colorize_domain(domain: str, zone: str | None, color: bool = True) -> str:
@@ -107,12 +108,12 @@ def _format_step_block(step: RecursionStep, color: bool = True) -> str:
     if resp is not None and not step.error:
         rcode_text = dns.rcode.to_text(resp.rcode())
     else:
-        rcode_text = "\u2014"
+        rcode_text = _DASH
 
     if step.rtt_ms is not None:
         time_text = f"{step.rtt_ms:.1f}ms"
     else:
-        time_text = "\u2014"
+        time_text = _DASH
 
     server_text = f"{step.server_name} ({step.server_ip})"
     result_text = _format_result_line(step)
