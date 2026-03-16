@@ -23,6 +23,7 @@ import pytest
 
 from dnscurse.models import is_referral
 from dnscurse.resolver import (
+    MAX_CNAME_FOLLOWS,
     MAX_STEPS,
     ROOT_SERVERS,
     resolve,
@@ -287,6 +288,34 @@ class TestResolverReferralChain:
             print(f"  {step.explain()}")
             print()
         print("  Resolver had to separately resolve NS name before continuing")
+
+    def test_cname_loop_is_bounded(self):
+        """EXPLANATION: A CNAME loop (A -> B -> A -> B -> ...) must not
+        cause infinite resolution. The resolver tracks how many CNAME
+        redirects have been followed and stops at MAX_CNAME_FOLLOWS.
+
+        Each CNAME follow restarts resolution from root, so the total
+        step count is MAX_CNAME_FOLLOWS * steps_per_chain.
+        """
+        def fake_send(name, rdtype, server_ip, timeout=5.0):
+            # Both names resolve to a CNAME pointing at each other
+            if server_ip == ROOT_SERVERS[0][1]:
+                return _make_referral("com.", "tld.ns.", "10.0.0.1")
+            if server_ip == "10.0.0.1":
+                return _make_referral("example.com.", "auth.ns.", "10.0.0.2")
+            if server_ip == "10.0.0.2":
+                if name in ("loop-a.example.com", "loop-a.example.com."):
+                    return _make_cname("loop-a.example.com.", "loop-b.example.com.")
+                return _make_cname("loop-b.example.com.", "loop-a.example.com.")
+            raise RuntimeError(f"Unexpected: {name} @ {server_ip}")
+
+        with patch("dnscurse.resolver.send_query", side_effect=fake_send):
+            steps = resolve("loop-a.example.com", dns.rdatatype.A)
+
+        # Each follow takes 3 steps (root + TLD + auth); stops after MAX_CNAME_FOLLOWS
+        assert len(steps) == (MAX_CNAME_FOLLOWS + 1) * 3
+        print(f"\n  CNAME loop stopped after {MAX_CNAME_FOLLOWS} follows "
+              f"({len(steps)} total steps)")
 
     def test_max_steps_prevents_infinite_loop(self):
         """EXPLANATION: The resolver limits total steps to prevent infinite

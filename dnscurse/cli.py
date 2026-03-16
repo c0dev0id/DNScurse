@@ -5,6 +5,8 @@ from __future__ import annotations
 import argparse
 import sys
 
+import dns.exception
+import dns.name
 import dns.rcode
 import dns.rdatatype
 
@@ -257,6 +259,12 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
     rdtype = dns.rdatatype.from_text(args.type)
+
+    try:
+        dns.name.from_text(args.domain)
+    except (dns.exception.DNSException, ValueError) as exc:
+        print(f"error: invalid domain name '{args.domain}': {exc}", file=sys.stderr)
+        return 1
 
     steps = resolve(args.domain, rdtype, timeout=args.timeout)
 

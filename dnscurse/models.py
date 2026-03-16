@@ -144,6 +144,7 @@ class RecursionStep:
     response: dns.message.Message | None = None
     error: str | None = None
     rtt_ms: float | None = None
+    truncated: bool = False
 
     def explain(self) -> str:
         """Return a human-readable explanation of this recursion step.
@@ -175,6 +176,8 @@ class RecursionStep:
         # indicating the response status.
         rcode = dns.rcode.to_text(resp.rcode())
         lines.append(f"  RCode:  {rcode}")
+        if self.truncated:
+            lines.append("  Warning: response was truncated (TC flag set); data may be incomplete")
 
         # Answer section: RFC 1035 Section 4.1.3 — contains RRs that
         # directly answer the question.

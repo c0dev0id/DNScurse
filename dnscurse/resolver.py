@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import time
 
+import dns.exception
 import dns.flags
 import dns.message
 import dns.query
@@ -135,11 +136,11 @@ def resolve(name: str, rdtype: int = dns.rdatatype.A,
         # server available." We send a non-recursive query (RD=0) to the
         # current server, which is either a root server (first step) or
         # a nameserver we were referred to.
+        t0 = time.monotonic()
         try:
-            t0 = time.monotonic()
             response = send_query(current_name, current_rdtype, server_ip, timeout)
             step.rtt_ms = (time.monotonic() - t0) * 1000
-        except Exception as exc:
+        except (OSError, dns.exception.DNSException) as exc:
             step.rtt_ms = (time.monotonic() - t0) * 1000
             # Network failure (timeout, unreachable, etc.). Record the
             # error so the user can see exactly which server failed.
@@ -154,7 +155,14 @@ def resolve(name: str, rdtype: int = dns.rdatatype.A,
                 continue
             break
 
+        step.rtt_ms = (time.monotonic() - t0) * 1000
         step.response = response
+        # RFC 1035 Section 4.1.1: TC (truncation) flag means the response
+        # was cut off because it exceeded UDP message size (512 bytes by
+        # default). A full resolver would retry over TCP, but we record the
+        # flag so the user can see it happened and know the data may be
+        # incomplete.
+        step.truncated = bool(response.flags & dns.flags.TC)
         steps.append(step)
 
         # RFC 1034 Section 5.3.3, Step 3: "Analyze the response."
