@@ -4,32 +4,9 @@ A traceroute for DNS. DNScurse performs iterative resolution from the root serve
 
 Unlike `dig +trace`, DNScurse walks the chain itself with `RD=0` (Recursion Desired off), so the output reflects the real path a resolver takes — including glue records, CNAME restarts, and SERVFAIL failovers.
 
-```
-example.com
-  server  a.root-servers.net (198.41.0.4)
-  rcode   NOERROR
-  result  referral → a.gtld-servers.net., b.gtld-servers.net.
-  time    12.4ms
+![demo](docs/demo.svg)
 
-example.com
-  server  a.gtld-servers.net (192.5.6.30)
-  rcode   NOERROR
-  result  referral → a.iana-servers.net., b.iana-servers.net.
-  time    18.7ms
-
-example.com
-  server  a.iana-servers.net (199.43.135.53)
-  rcode   NOERROR
-  result  A 93.184.216.34
-  time    9.1ms
-
-  Answer:
-    example.com.  3600  A  93.184.216.34
-
-  3 steps, 40.2ms total
-```
-
-In a terminal, the domain header is coloured at each step to show which zone the queried server is responsible for — the active zone is **yellow**, the labels above it are dimmed.
+The domain header is coloured at each step: the label currently being delegated is **yellow**, already-resolved labels are normal, and the subdomain prefix not yet looked up is dim.
 
 ---
 
