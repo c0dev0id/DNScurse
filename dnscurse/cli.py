@@ -25,7 +25,7 @@ _CLI_TYPES = ["A", "AAAA", "NS", "CNAME", "SOA", "MX", "TXT", "PTR"]
 _DIM    = "\033[2m"
 _YELLOW = "\033[33m"
 _RESET  = "\033[0m"
-_DASH   = _DASH
+_DASH   = "\u2014"
 
 
 def _colorize_domain(domain: str, zone: str | None, color: bool = True) -> str:
