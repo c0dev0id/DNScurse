@@ -2,93 +2,81 @@
 
 ## Project Overview
 
-DNScurse is a Python CLI DNS recursor debug tool. It implements iterative DNS resolution from scratch, allowing users to walk through each recursion step to understand and debug how DNS resolution works.
+DNScurse is a Python CLI DNS recursor debug tool. It performs iterative DNS resolution from root servers, allowing users to walk through each recursion step to understand and debug how DNS resolution works.
 
-## Critical Constraints
+## Dependencies
 
-- **No DNS libraries.** Do not use `dnspython`, `socket.getaddrinfo()`, `socket.gethostbyname()`, or any library that performs DNS resolution or parsing.
-- **All DNS logic must be hand-written.** Wire format encoding/decoding (per RFC 1035), packet construction, response parsing, and iterative resolution must all be implemented manually.
-- **No copied implementations.** Code must be original, not lifted from existing DNS tools or libraries.
-- **Minimal dependencies.** The core tool uses only Python stdlib (`socket` for raw UDP, `struct` for binary packing, `argparse` for CLI). No external packages for core functionality.
+- **dnspython** (`>=2.6`) — handles DNS wire format encoding/decoding, packet construction/parsing, and UDP transport.
+- **Python stdlib** — `argparse` for CLI.
+- **No other external packages** for core functionality.
 
 ## Architecture
 
-### DNS Wire Format (RFC 1035)
-- Manual construction of DNS query packets (header, question section) as raw bytes
-- Manual parsing of DNS response packets (header, question, answer, authority, additional sections)
-- Support for label compression (pointer references in domain names)
-- Record types: at minimum A, AAAA, NS, CNAME, SOA; extend as needed
+### What dnspython handles
+- Wire format (RFC 1035): packet encoding, decoding, name compression
+- Record type parsing: A, AAAA, NS, CNAME, SOA, MX, TXT, etc.
+- UDP transport: `dns.query.udp()`
+- Query construction: `dns.message.make_query()`
 
-### Iterative Resolution
-- Start from root DNS servers (hardcoded root hints)
-- Follow NS referrals down the delegation chain
-- Handle CNAME chains
-- Each step is exposed to the user for inspection
+### What we implement
+- **Iterative resolution logic** (`resolver.py`): walks the delegation chain from root servers, follows referrals and CNAMEs
+- **Referral/CNAME detection** (`models.py`): helper functions that inspect `dns.message.Message` objects
+- **Step-by-step explanation** (`models.py`): `RecursionStep` with `explain()` for human-readable output
+- **CLI** (`cli.py`): entry point
 
-### Step-by-Step Walker
-- The CLI allows pausing at each recursion step
-- Display: query sent, server contacted, response received, next action
-- Users can examine the raw packets and parsed data at each stage
+### Key design decisions
+- Queries are sent with `RD=0` (Recursion Desired off) — we do the iteration ourselves
+- `dns.message.Message` is used directly as the response type (no wrapper layer)
+- `RecursionStep` is our only custom data class — it wraps a response with metadata about which server was queried and why
 
 ## Project Structure
 
 ```
 DNScurse/
 ├── CLAUDE.md
-├── README.md
+├── pyproject.toml
+├── .gitignore
+├── .github/workflows/test.yml
 ├── dnscurse/
 │   ├── __init__.py
-│   ├── cli.py          # CLI entry point and argument parsing
-│   ├── wire.py         # DNS wire format encode/decode
-│   ├── resolver.py     # Iterative resolution engine
-│   └── models.py       # Data classes for DNS records, packets, etc.
-├── tests/
-│   ├── test_wire.py    # Unit tests for wire format
-│   ├── test_resolver.py
-│   └── test_models.py
-└── pyproject.toml
-```
-
-## Development Setup
-
-```sh
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
+│   ├── __main__.py       # python -m dnscurse
+│   ├── cli.py             # CLI entry point and argument parsing
+│   ├── models.py          # RecursionStep + helper functions for dns.message.Message
+│   └── resolver.py        # Iterative resolution engine
+└── tests/
+    ├── __init__.py
+    ├── conftest.py
+    ├── test_models.py     # Referral/CNAME detection, RecursionStep explanations
+    └── test_resolver.py   # Simulated resolution chains, root server config
 ```
 
 ## Commands
 
 ```sh
+# Install
+pip install -e ".[dev]"
+
 # Run the tool
 python -m dnscurse example.com
+python -m dnscurse -t AAAA example.com
 
 # Run tests
-python -m pytest tests/
+python -m pytest tests/ -m "not network"
 
-# Lint
-python -m ruff check .
-
-# Type check
-python -m mypy dnscurse/
+# Run integration tests (requires network)
+python -m pytest tests/ -m network
 ```
 
 ## Code Style
 
 - PEP 8
 - Type hints on all function signatures
-- Docstrings on public functions (one-line or short)
-- No classes where a function suffices
-- Keep modules focused — wire format logic stays in `wire.py`, resolution logic in `resolver.py`
+- Use `dns.rdatatype`, `dns.rcode`, `dns.message.Message` directly — no wrapper enums
+- Keep modules focused: resolution logic in `resolver.py`, helpers and `RecursionStep` in `models.py`
 
 ## Testing
 
-- **Unit tests:** Encode a DNS query, verify raw bytes match expected. Parse a known response byte sequence, verify fields.
-- **Integration tests:** Resolve a well-known domain (e.g., `example.com`) end-to-end against real root servers.
-- Use `pytest`. No mocking of the DNS wire format — test against real byte sequences.
-
-## Key References
-
-- RFC 1035 — Domain Names: Implementation and Specification
-- RFC 3596 — AAAA records
-- Root server list: https://www.iana.org/domains/root/servers
+- **Unit tests**: Mock `send_query` to simulate referral chains, CNAMEs, NXDOMAIN, network errors
+- **Helper `_msg()`**: Builds `dns.message.Message` objects from simple tuples for readable tests
+- **Integration tests** (`@pytest.mark.network`): Resolve real domains against root servers
+- Test output explains each recursion step — serves as educational documentation

@@ -1,14 +1,23 @@
 """Iterative DNS resolver — walks the delegation chain from root servers.
 
-No DNS libraries. Uses raw UDP sockets and manual wire format.
+Uses dnspython for wire format and UDP transport.
+The iteration logic (following referrals, CNAMEs) is ours.
 """
 
 from __future__ import annotations
 
-import socket
+import dns.flags
+import dns.message
+import dns.query
+import dns.rdatatype
 
-from .models import DNSPacket, QType, RecursionStep
-from .wire import build_query, decode_packet
+from .models import (
+    RecursionStep,
+    get_cname_target,
+    get_referral_ns_ips,
+    get_referral_ns_names,
+    is_referral,
+)
 
 # IANA root server addresses (IPv4).
 ROOT_SERVERS: list[tuple[str, str]] = [
@@ -32,21 +41,15 @@ MAX_STEPS = 30
 MAX_CNAME_FOLLOWS = 8
 
 
-def send_query(name: str, qtype: int, server_ip: str,
-               timeout: float = DEFAULT_TIMEOUT) -> DNSPacket:
-    """Send a DNS query over UDP and return the parsed response."""
-    query = build_query(name, qtype, rd=0)
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.settimeout(timeout)
-    try:
-        sock.sendto(query, (server_ip, 53))
-        data, _ = sock.recvfrom(4096)
-    finally:
-        sock.close()
-    return decode_packet(data)
+def send_query(name: str, rdtype: int, server_ip: str,
+               timeout: float = DEFAULT_TIMEOUT) -> dns.message.Message:
+    """Send an iterative DNS query over UDP and return the response."""
+    query = dns.message.make_query(name, rdtype)
+    query.flags &= ~dns.flags.RD  # clear Recursion Desired for iterative
+    return dns.query.udp(query, server_ip, timeout=timeout)
 
 
-def resolve(name: str, qtype: int = QType.A,
+def resolve(name: str, rdtype: int = dns.rdatatype.A,
             timeout: float = DEFAULT_TIMEOUT) -> list[RecursionStep]:
     """Iteratively resolve a domain name, returning every step.
 
@@ -58,18 +61,15 @@ def resolve(name: str, qtype: int = QType.A,
     step_num = 0
     cname_follows = 0
 
-    # Start with the first root server
     current_name = name
-    current_qtype = qtype
+    current_rdtype = rdtype
     server_ip = ROOT_SERVERS[0][1]
     server_name = ROOT_SERVERS[0][0]
 
     while step_num < MAX_STEPS:
         step_num += 1
-        qtype_name = QType.from_int(current_qtype)
-        qtype_str = qtype_name.name if isinstance(qtype_name, QType) else f"TYPE{qtype_name}"
+        qtype_str = dns.rdatatype.to_text(current_rdtype)
 
-        # Determine description for this step
         if step_num == 1:
             desc = f"Query root server for {current_name}"
         else:
@@ -85,7 +85,7 @@ def resolve(name: str, qtype: int = QType.A,
         )
 
         try:
-            response = send_query(current_name, current_qtype, server_ip, timeout)
+            response = send_query(current_name, current_rdtype, server_ip, timeout)
         except Exception as exc:
             step.error = str(exc)
             steps.append(step)
@@ -95,19 +95,17 @@ def resolve(name: str, qtype: int = QType.A,
         steps.append(step)
 
         # Check for error responses
-        if response.header.rcode != 0:
+        if response.rcode() != dns.rcode.NOERROR:
             break
 
         # Got answers?
-        if response.answers:
-            # Check for CNAME and follow it
-            cname_target = response.get_cname_target(current_name)
-            if cname_target and current_qtype != QType.CNAME:
+        if response.answer:
+            cname_target = get_cname_target(response, current_name)
+            if cname_target and current_rdtype != dns.rdatatype.CNAME:
                 cname_follows += 1
                 if cname_follows > MAX_CNAME_FOLLOWS:
                     break
                 current_name = cname_target
-                # Restart from root for the CNAME target
                 server_ip = ROOT_SERVERS[0][1]
                 server_name = ROOT_SERVERS[0][0]
                 continue
@@ -115,43 +113,34 @@ def resolve(name: str, qtype: int = QType.A,
             break
 
         # Referral?
-        if response.is_referral():
-            glue_ips = response.get_referral_ns_ips()
+        if is_referral(response):
+            glue_ips = get_referral_ns_ips(response)
             if glue_ips:
-                # Use the first glue IP
                 server_ip = glue_ips[0]
-                # Find corresponding NS name
-                for r in response.authorities:
-                    if r.rtype == QType.NS:
-                        server_name = r.rdata
-                        break
+                ns_names = get_referral_ns_names(response)
+                if ns_names:
+                    server_name = ns_names[0]
                 continue
 
-            # No glue — need to resolve an NS name first.
-            # For simplicity, pick first NS and try to resolve its A record.
-            ns_names = [
-                r.rdata for r in response.authorities if r.rtype == QType.NS
-            ]
+            # No glue — resolve NS name first
+            ns_names = get_referral_ns_names(response)
             if ns_names:
-                ns_steps = resolve(ns_names[0], QType.A, timeout)
-                # Find the A record in the final step
+                ns_steps = resolve(ns_names[0], dns.rdatatype.A, timeout)
                 for ns_step in reversed(ns_steps):
-                    if ns_step.response and ns_step.response.answers:
-                        for r in ns_step.response.answers:
-                            if r.rtype == QType.A:
-                                server_ip = r.rdata
+                    if ns_step.response and ns_step.response.answer:
+                        for rrset in ns_step.response.answer:
+                            if rrset.rdtype == dns.rdatatype.A:
+                                server_ip = list(rrset)[0].address
                                 server_name = ns_names[0]
                                 break
                         break
                 else:
-                    # Could not resolve NS
                     break
                 continue
 
-            # No NS at all
             break
 
-        # SOA in authority with no referral and no answers = NXDOMAIN / NODATA
+        # SOA in authority with no referral and no answers = NODATA
         break
 
     return steps

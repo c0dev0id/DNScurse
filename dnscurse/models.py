@@ -1,121 +1,73 @@
-"""Data classes for DNS packets, records, and resolution steps."""
+"""Data models and helpers for DNS recursion step tracking.
+
+Uses dnspython's dns.message.Message as the packet representation.
+This module provides RecursionStep (our value-add) and helper functions
+that inspect dns.message.Message objects for referral/CNAME detection.
+"""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from enum import IntEnum
+from dataclasses import dataclass
+
+import dns.flags
+import dns.message
+import dns.name
+import dns.rcode
+import dns.rdatatype
 
 
-class QType(IntEnum):
-    """DNS query/record types."""
-    A = 1
-    NS = 2
-    CNAME = 5
-    SOA = 6
-    PTR = 12
-    MX = 15
-    TXT = 16
-    AAAA = 28
-
-    @classmethod
-    def from_int(cls, value: int) -> QType | int:
-        try:
-            return cls(value)
-        except ValueError:
-            return value
+def is_referral(msg: dns.message.Message) -> bool:
+    """True if response is a referral (NS in authority, no answers)."""
+    return (
+        len(msg.answer) == 0
+        and any(rrset.rdtype == dns.rdatatype.NS for rrset in msg.authority)
+    )
 
 
-class QClass(IntEnum):
-    """DNS query classes."""
-    IN = 1
+def get_referral_ns_ips(msg: dns.message.Message) -> list[str]:
+    """Extract glue record IPs from additional section for NS referrals."""
+    ns_names: set[dns.name.Name] = set()
+    for rrset in msg.authority:
+        if rrset.rdtype == dns.rdatatype.NS:
+            for rr in rrset:
+                ns_names.add(rr.target)
+
+    ips: list[str] = []
+    for rrset in msg.additional:
+        if rrset.rdtype in (dns.rdatatype.A, dns.rdatatype.AAAA):
+            if rrset.name in ns_names:
+                for rr in rrset:
+                    ips.append(rr.address)
+    return ips
 
 
-class RCode(IntEnum):
-    """DNS response codes."""
-    NOERROR = 0
-    FORMERR = 1
-    SERVFAIL = 2
-    NXDOMAIN = 3
-    NOTIMP = 4
-    REFUSED = 5
+def get_referral_ns_names(msg: dns.message.Message) -> list[str]:
+    """Extract NS names from authority section."""
+    names: list[str] = []
+    for rrset in msg.authority:
+        if rrset.rdtype == dns.rdatatype.NS:
+            for rr in rrset:
+                names.append(str(rr.target))
+    return names
 
 
-@dataclass
-class DNSHeader:
-    """DNS packet header (12 bytes)."""
-    id: int = 0
-    qr: int = 0          # 0=query, 1=response
-    opcode: int = 0
-    aa: int = 0           # authoritative answer
-    tc: int = 0           # truncated
-    rd: int = 0           # recursion desired
-    ra: int = 0           # recursion available
-    z: int = 0
-    rcode: int = 0
-    qdcount: int = 0
-    ancount: int = 0
-    nscount: int = 0
-    arcount: int = 0
+def get_cname_target(msg: dns.message.Message, name: str) -> str | None:
+    """If the answer contains a CNAME for name, return the target."""
+    qname = dns.name.from_text(name)
+    for rrset in msg.answer:
+        if rrset.rdtype == dns.rdatatype.CNAME and rrset.name == qname:
+            for rr in rrset:
+                return str(rr.target)
+    return None
 
 
-@dataclass
-class DNSQuestion:
-    """DNS question section entry."""
-    name: str
-    qtype: int
-    qclass: int = QClass.IN
-
-
-@dataclass
-class DNSRecord:
-    """A parsed DNS resource record."""
-    name: str
-    rtype: int
-    rclass: int
-    ttl: int
-    rdata: str            # Human-readable form of the record data
-
-    def type_name(self) -> str:
-        t = QType.from_int(self.rtype)
-        return t.name if isinstance(t, QType) else f"TYPE{t}"
-
-    def __str__(self) -> str:
-        return f"{self.name}\t{self.ttl}\t{self.type_name()}\t{self.rdata}"
-
-
-@dataclass
-class DNSPacket:
-    """A fully parsed DNS packet."""
-    header: DNSHeader
-    questions: list[DNSQuestion] = field(default_factory=list)
-    answers: list[DNSRecord] = field(default_factory=list)
-    authorities: list[DNSRecord] = field(default_factory=list)
-    additionals: list[DNSRecord] = field(default_factory=list)
-
-    def is_referral(self) -> bool:
-        """True if this is a referral (NS in authority, no answers)."""
-        return (
-            len(self.answers) == 0
-            and any(r.rtype == QType.NS for r in self.authorities)
-        )
-
-    def get_referral_ns_ips(self) -> list[str]:
-        """Extract glue record IPs from additional section for NS referrals."""
-        ns_names = {
-            r.rdata for r in self.authorities if r.rtype == QType.NS
-        }
-        ips = []
-        for r in self.additionals:
-            if r.rtype in (QType.A, QType.AAAA) and r.name in ns_names:
-                ips.append(r.rdata)
-        return ips
-
-    def get_cname_target(self, name: str) -> str | None:
-        """If the answer contains a CNAME for name, return target."""
-        for r in self.answers:
-            if r.rtype == QType.CNAME and r.name.lower() == name.lower():
-                return r.rdata
-        return None
+def format_rrset(rrset: dns.rrset.RRset) -> list[str]:
+    """Format an rrset as human-readable lines."""
+    lines = []
+    for rr in rrset:
+        type_name = dns.rdatatype.to_text(rrset.rdtype)
+        lines.append(f"{rrset.name}\t{rrset.ttl}\t{type_name}\t{rr}")
+    return lines
 
 
 @dataclass
@@ -127,7 +79,7 @@ class RecursionStep:
     server_name: str
     query_name: str
     query_type: str
-    response: DNSPacket | None = None
+    response: dns.message.Message | None = None
     error: str | None = None
 
     def explain(self) -> str:
@@ -146,27 +98,28 @@ class RecursionStep:
             lines.append("  (no response)")
             return "\n".join(lines)
 
-        lines.append(f"  RCode:  {RCode(resp.header.rcode).name}")
+        rcode = dns.rcode.to_text(resp.rcode())
+        lines.append(f"  RCode:  {rcode}")
 
-        if resp.answers:
+        if resp.answer:
             lines.append("  Answers:")
-            for r in resp.answers:
-                lines.append(f"    {r}")
+            for rrset in resp.answer:
+                for line in format_rrset(rrset):
+                    lines.append(f"    {line}")
 
-        if resp.is_referral():
-            ns_names = [
-                r.rdata for r in resp.authorities if r.rtype == QType.NS
-            ]
-            glue_ips = resp.get_referral_ns_ips()
+        if is_referral(resp):
+            ns_names = get_referral_ns_names(resp)
+            glue_ips = get_referral_ns_ips(resp)
             lines.append(f"  Referral to: {', '.join(ns_names)}")
             if glue_ips:
                 lines.append(f"  Glue IPs: {', '.join(glue_ips)}")
             else:
                 lines.append("  (no glue records — must resolve NS names)")
 
-        if resp.authorities and not resp.is_referral():
+        elif resp.authority:
             lines.append("  Authority:")
-            for r in resp.authorities:
-                lines.append(f"    {r}")
+            for rrset in resp.authority:
+                for line in format_rrset(rrset):
+                    lines.append(f"    {line}")
 
         return "\n".join(lines)

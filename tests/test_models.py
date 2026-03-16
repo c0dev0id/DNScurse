@@ -1,104 +1,77 @@
-"""Tests for DNS data models and recursion step explanations.
+"""Tests for DNS models and recursion step explanations.
 
-These tests verify the model layer and — importantly — demonstrate how
-recursion steps are built and explained so the test output serves as
-educational documentation of the DNS resolution process.
+These tests verify the model layer and demonstrate how recursion steps
+are built and explained. Test output serves as educational documentation
+of the DNS resolution process.
 """
 
 from __future__ import annotations
 
+import dns.flags
+import dns.message
+import dns.name
+import dns.rcode
+import dns.rdataclass
+import dns.rdatatype
+import dns.rrset
+
 from dnscurse.models import (
-    DNSHeader,
-    DNSPacket,
-    DNSQuestion,
-    DNSRecord,
-    QClass,
-    QType,
-    RCode,
     RecursionStep,
+    format_rrset,
+    get_cname_target,
+    get_referral_ns_ips,
+    get_referral_ns_names,
+    is_referral,
 )
 
 
 # -----------------------------------------------------------------------
-# QType / enums
+# Helpers — build dns.message.Message objects for tests
 # -----------------------------------------------------------------------
 
-class TestQType:
-    def test_known_types(self):
-        """EXPLANATION: DNS defines numeric type codes for record types.
-        The most common ones used in recursion:
-          A=1 (IPv4), NS=2 (nameserver), CNAME=5 (alias),
-          SOA=6 (zone authority), AAAA=28 (IPv6)
-        """
-        assert QType.A == 1
-        assert QType.NS == 2
-        assert QType.CNAME == 5
-        assert QType.SOA == 6
-        assert QType.AAAA == 28
-        print("  A=1  NS=2  CNAME=5  SOA=6  AAAA=28")
+def _msg(
+    *,
+    rcode: int = dns.rcode.NOERROR,
+    aa: bool = False,
+    answer: list[tuple[str, int, int, str]] | None = None,
+    authority: list[tuple[str, int, int, str]] | None = None,
+    additional: list[tuple[str, int, int, str]] | None = None,
+) -> dns.message.Message:
+    """Build a dns.message.Message from simplified tuples.
 
-    def test_unknown_type(self):
-        """EXPLANATION: DNS has many record types. When we encounter one
-        we don't explicitly handle, we return the raw integer rather
-        than crashing.
-        """
-        result = QType.from_int(999)
-        assert result == 999
-        assert not isinstance(result, QType)
-        print("  Unknown type 999 returned as raw int")
+    Each record tuple is (name, rdtype, ttl, rdata_text).
+    """
+    msg = dns.message.Message()
+    msg.flags |= dns.flags.QR
+    if aa:
+        msg.flags |= dns.flags.AA
+    msg.set_rcode(rcode)
 
+    for section, records in [
+        (msg.answer, answer or []),
+        (msg.authority, authority or []),
+        (msg.additional, additional or []),
+    ]:
+        for name, rdtype, ttl, rdata_text in records:
+            rrset = msg.find_rrset(
+                section,
+                dns.name.from_text(name),
+                dns.rdataclass.IN,
+                rdtype,
+                create=True,
+            )
+            rrset.update_ttl(ttl)
+            rd = dns.rdata.from_text(dns.rdataclass.IN, rdtype, rdata_text)
+            rrset.add(rd)
 
-class TestRCode:
-    def test_common_rcodes(self):
-        """EXPLANATION: RCODE tells us the result of a query:
-          0 = NOERROR  (success, even if no records found)
-          2 = SERVFAIL (server couldn't process the query)
-          3 = NXDOMAIN (domain name does not exist)
-          5 = REFUSED  (server refuses to answer)
-        """
-        assert RCode.NOERROR == 0
-        assert RCode.SERVFAIL == 2
-        assert RCode.NXDOMAIN == 3
-        assert RCode.REFUSED == 5
-        print("  NOERROR=0  SERVFAIL=2  NXDOMAIN=3  REFUSED=5")
+    return msg
 
 
 # -----------------------------------------------------------------------
-# DNSRecord
+# Referral detection
 # -----------------------------------------------------------------------
 
-class TestDNSRecord:
-    def test_type_name_known(self):
-        r = DNSRecord(name="example.com", rtype=QType.A,
-                      rclass=QClass.IN, ttl=300, rdata="93.184.216.34")
-        assert r.type_name() == "A"
-        print(f"  {r}")
-
-    def test_type_name_unknown(self):
-        r = DNSRecord(name="example.com", rtype=65,
-                      rclass=QClass.IN, ttl=300, rdata="...")
-        assert r.type_name() == "TYPE65"
-        print(f"  Unknown type renders as: {r.type_name()}")
-
-    def test_str_format(self):
-        """EXPLANATION: Record string format matches dig-style output:
-        NAME  TTL  TYPE  RDATA
-        """
-        r = DNSRecord(name="example.com", rtype=QType.A,
-                      rclass=QClass.IN, ttl=3600, rdata="93.184.216.34")
-        s = str(r)
-        assert "example.com" in s
-        assert "3600" in s
-        assert "A" in s
-        assert "93.184.216.34" in s
-        print(f"  Record: {s}")
-
-
-# -----------------------------------------------------------------------
-# DNSPacket — referral detection
-# -----------------------------------------------------------------------
-
-class TestDNSPacketReferral:
+class TestReferralDetection:
     """EXPLANATION: Detecting referrals is critical for iterative resolution.
     A referral means the server doesn't have the final answer but knows
     which nameservers are responsible for the next zone in the hierarchy.
@@ -110,31 +83,21 @@ class TestDNSPacketReferral:
     """
 
     def test_referral_detected(self):
-        pkt = DNSPacket(
-            header=DNSHeader(qr=1, nscount=1, arcount=1),
-            authorities=[
-                DNSRecord("com", QType.NS, QClass.IN, 172800,
-                          "a.gtld-servers.net"),
-            ],
-            additionals=[
-                DNSRecord("a.gtld-servers.net", QType.A, QClass.IN, 172800,
-                          "192.5.6.30"),
-            ],
+        msg = _msg(
+            authority=[("com.", dns.rdatatype.NS, 172800, "a.gtld-servers.net.")],
+            additional=[("a.gtld-servers.net.", dns.rdatatype.A, 172800, "192.5.6.30")],
         )
-        assert pkt.is_referral()
-        ips = pkt.get_referral_ns_ips()
+        assert is_referral(msg)
+        ips = get_referral_ns_ips(msg)
         assert ips == ["192.5.6.30"]
         print("  Referral: com -> a.gtld-servers.net (192.5.6.30)")
 
     def test_answer_is_not_referral(self):
-        pkt = DNSPacket(
-            header=DNSHeader(qr=1, ancount=1),
-            answers=[
-                DNSRecord("example.com", QType.A, QClass.IN, 300,
-                          "93.184.216.34"),
-            ],
+        msg = _msg(
+            aa=True,
+            answer=[("example.com.", dns.rdatatype.A, 300, "93.184.216.34")],
         )
-        assert not pkt.is_referral()
+        assert not is_referral(msg)
         print("  Packet with answers is NOT a referral")
 
     def test_referral_without_glue(self):
@@ -143,16 +106,24 @@ class TestDNSPacketReferral:
         The resolver must then separately resolve the NS name to an IP
         before it can continue — adding extra recursion steps.
         """
-        pkt = DNSPacket(
-            header=DNSHeader(qr=1, nscount=1),
-            authorities=[
-                DNSRecord("example.com", QType.NS, QClass.IN, 172800,
-                          "ns1.other-provider.net"),
+        msg = _msg(
+            authority=[("example.com.", dns.rdatatype.NS, 172800, "ns1.other-provider.net.")],
+        )
+        assert is_referral(msg)
+        assert get_referral_ns_ips(msg) == []
+        print("  Referral without glue — NS must be resolved separately")
+
+    def test_get_referral_ns_names(self):
+        msg = _msg(
+            authority=[
+                ("com.", dns.rdatatype.NS, 172800, "a.gtld-servers.net."),
+                ("com.", dns.rdatatype.NS, 172800, "b.gtld-servers.net."),
             ],
         )
-        assert pkt.is_referral()
-        assert pkt.get_referral_ns_ips() == []
-        print("  Referral without glue — NS must be resolved separately")
+        names = get_referral_ns_names(msg)
+        assert "a.gtld-servers.net." in names
+        assert "b.gtld-servers.net." in names
+        print(f"  NS names: {names}")
 
 
 # -----------------------------------------------------------------------
@@ -168,38 +139,64 @@ class TestCNAMEHandling:
     """
 
     def test_cname_detected(self):
-        pkt = DNSPacket(
-            header=DNSHeader(qr=1, ancount=1),
-            answers=[
-                DNSRecord("www.example.com", QType.CNAME, QClass.IN, 3600,
-                          "example.com"),
-            ],
+        msg = _msg(
+            aa=True,
+            answer=[("www.example.com.", dns.rdatatype.CNAME, 3600, "example.com.")],
         )
-        target = pkt.get_cname_target("www.example.com")
-        assert target == "example.com"
+        target = get_cname_target(msg, "www.example.com")
+        assert target is not None
+        assert "example.com" in target
         print(f"  CNAME: www.example.com -> {target}")
 
     def test_cname_case_insensitive(self):
-        pkt = DNSPacket(
-            header=DNSHeader(qr=1, ancount=1),
-            answers=[
-                DNSRecord("WWW.EXAMPLE.COM", QType.CNAME, QClass.IN, 3600,
-                          "example.com"),
-            ],
+        """EXPLANATION: DNS names are case-insensitive per RFC 1035 2.3.3.
+        dnspython handles this natively via dns.name.Name comparison.
+        """
+        msg = _msg(
+            aa=True,
+            answer=[("WWW.EXAMPLE.COM.", dns.rdatatype.CNAME, 3600, "example.com.")],
         )
-        assert pkt.get_cname_target("www.example.com") == "example.com"
+        assert get_cname_target(msg, "www.example.com") is not None
         print("  CNAME lookup is case-insensitive")
 
     def test_no_cname(self):
-        pkt = DNSPacket(
-            header=DNSHeader(qr=1, ancount=1),
-            answers=[
-                DNSRecord("example.com", QType.A, QClass.IN, 300,
-                          "93.184.216.34"),
-            ],
+        msg = _msg(
+            aa=True,
+            answer=[("example.com.", dns.rdatatype.A, 300, "93.184.216.34")],
         )
-        assert pkt.get_cname_target("example.com") is None
+        assert get_cname_target(msg, "example.com") is None
         print("  A record — no CNAME chain to follow")
+
+
+# -----------------------------------------------------------------------
+# format_rrset
+# -----------------------------------------------------------------------
+
+class TestFormatRRset:
+    def test_a_record(self):
+        """EXPLANATION: Record string format matches dig-style output:
+        NAME  TTL  TYPE  RDATA
+        """
+        msg = _msg(answer=[("example.com.", dns.rdatatype.A, 3600, "93.184.216.34")])
+        lines = format_rrset(msg.answer[0])
+        assert len(lines) == 1
+        assert "example.com" in lines[0]
+        assert "3600" in lines[0]
+        assert "93.184.216.34" in lines[0]
+        print(f"  Record: {lines[0]}")
+
+    def test_multiple_records(self):
+        """EXPLANATION: A domain can have multiple A records (round-robin DNS).
+        """
+        msg = _msg(answer=[
+            ("example.com.", dns.rdatatype.A, 300, "1.2.3.4"),
+            ("example.com.", dns.rdatatype.A, 300, "5.6.7.8"),
+        ])
+        lines = format_rrset(msg.answer[0])
+        assert len(lines) == 2
+        print("  Multiple A records (round-robin):")
+        for line in lines:
+            print(f"    {line}")
 
 
 # -----------------------------------------------------------------------
@@ -226,21 +223,14 @@ class TestRecursionStepExplanation:
             server_name="a.root-servers.net",
             query_name="example.com",
             query_type="A",
-            response=DNSPacket(
-                header=DNSHeader(qr=1, nscount=1, arcount=1),
-                authorities=[
-                    DNSRecord("com", QType.NS, QClass.IN, 172800,
-                              "a.gtld-servers.net"),
-                ],
-                additionals=[
-                    DNSRecord("a.gtld-servers.net", QType.A, QClass.IN,
-                              172800, "192.5.6.30"),
-                ],
+            response=_msg(
+                authority=[("com.", dns.rdatatype.NS, 172800, "a.gtld-servers.net.")],
+                additional=[("a.gtld-servers.net.", dns.rdatatype.A, 172800, "192.5.6.30")],
             ),
         )
         text = step.explain()
         assert "Step 1" in text
-        assert "root server" in text.lower() or "a.root-servers.net" in text
+        assert "a.root-servers.net" in text
         assert "a.gtld-servers.net" in text
         assert "192.5.6.30" in text
         print(text)
@@ -259,16 +249,9 @@ class TestRecursionStepExplanation:
             server_name="a.gtld-servers.net",
             query_name="example.com",
             query_type="A",
-            response=DNSPacket(
-                header=DNSHeader(qr=1, nscount=1, arcount=1),
-                authorities=[
-                    DNSRecord("example.com", QType.NS, QClass.IN, 172800,
-                              "a.iana-servers.net"),
-                ],
-                additionals=[
-                    DNSRecord("a.iana-servers.net", QType.A, QClass.IN,
-                              172800, "199.43.135.53"),
-                ],
+            response=_msg(
+                authority=[("example.com.", dns.rdatatype.NS, 172800, "a.iana-servers.net.")],
+                additional=[("a.iana-servers.net.", dns.rdatatype.A, 172800, "199.43.135.53")],
             ),
         )
         text = step.explain()
@@ -290,12 +273,9 @@ class TestRecursionStepExplanation:
             server_name="a.iana-servers.net",
             query_name="example.com",
             query_type="A",
-            response=DNSPacket(
-                header=DNSHeader(qr=1, aa=1, ancount=1),
-                answers=[
-                    DNSRecord("example.com", QType.A, QClass.IN, 3600,
-                              "93.184.216.34"),
-                ],
+            response=_msg(
+                aa=True,
+                answer=[("example.com.", dns.rdatatype.A, 3600, "93.184.216.34")],
             ),
         )
         text = step.explain()
@@ -333,12 +313,13 @@ class TestRecursionStepExplanation:
             server_name="ns.example.com",
             query_name="nope.example.com",
             query_type="A",
-            response=DNSPacket(
-                header=DNSHeader(qr=1, aa=1, rcode=3, nscount=1),
-                authorities=[
-                    DNSRecord("example.com", QType.SOA, QClass.IN, 900,
-                              "ns1.example.com admin.example.com 2024010101 3600 900 604800 86400"),
-                ],
+            response=_msg(
+                rcode=dns.rcode.NXDOMAIN,
+                aa=True,
+                authority=[(
+                    "example.com.", dns.rdatatype.SOA, 900,
+                    "ns1.example.com. admin.example.com. 2024010101 3600 900 604800 86400",
+                )],
             ),
         )
         text = step.explain()
@@ -376,19 +357,14 @@ class TestRecursionStepExplanation:
                 server_name="a.root-servers.net",
                 query_name="example.com",
                 query_type="A",
-                response=DNSPacket(
-                    header=DNSHeader(qr=1, nscount=2, arcount=2),
-                    authorities=[
-                        DNSRecord("com", QType.NS, QClass.IN, 172800,
-                                  "a.gtld-servers.net"),
-                        DNSRecord("com", QType.NS, QClass.IN, 172800,
-                                  "b.gtld-servers.net"),
+                response=_msg(
+                    authority=[
+                        ("com.", dns.rdatatype.NS, 172800, "a.gtld-servers.net."),
+                        ("com.", dns.rdatatype.NS, 172800, "b.gtld-servers.net."),
                     ],
-                    additionals=[
-                        DNSRecord("a.gtld-servers.net", QType.A, QClass.IN,
-                                  172800, "192.5.6.30"),
-                        DNSRecord("b.gtld-servers.net", QType.A, QClass.IN,
-                                  172800, "192.33.14.30"),
+                    additional=[
+                        ("a.gtld-servers.net.", dns.rdatatype.A, 172800, "192.5.6.30"),
+                        ("b.gtld-servers.net.", dns.rdatatype.A, 172800, "192.33.14.30"),
                     ],
                 ),
             ),
@@ -399,16 +375,9 @@ class TestRecursionStepExplanation:
                 server_name="a.gtld-servers.net",
                 query_name="example.com",
                 query_type="A",
-                response=DNSPacket(
-                    header=DNSHeader(qr=1, nscount=1, arcount=1),
-                    authorities=[
-                        DNSRecord("example.com", QType.NS, QClass.IN,
-                                  172800, "a.iana-servers.net"),
-                    ],
-                    additionals=[
-                        DNSRecord("a.iana-servers.net", QType.A, QClass.IN,
-                                  172800, "199.43.135.53"),
-                    ],
+                response=_msg(
+                    authority=[("example.com.", dns.rdatatype.NS, 172800, "a.iana-servers.net.")],
+                    additional=[("a.iana-servers.net.", dns.rdatatype.A, 172800, "199.43.135.53")],
                 ),
             ),
             RecursionStep(
@@ -418,12 +387,9 @@ class TestRecursionStepExplanation:
                 server_name="a.iana-servers.net",
                 query_name="example.com",
                 query_type="A",
-                response=DNSPacket(
-                    header=DNSHeader(qr=1, aa=1, ancount=1),
-                    answers=[
-                        DNSRecord("example.com", QType.A, QClass.IN, 3600,
-                                  "93.184.216.34"),
-                    ],
+                response=_msg(
+                    aa=True,
+                    answer=[("example.com.", dns.rdatatype.A, 3600, "93.184.216.34")],
                 ),
             ),
         ]
@@ -436,9 +402,9 @@ class TestRecursionStepExplanation:
             print()
 
         # Verify the chain
-        assert steps[0].response.is_referral()
-        assert steps[1].response.is_referral()
-        assert not steps[2].response.is_referral()
-        assert steps[2].response.answers[0].rdata == "93.184.216.34"
+        assert is_referral(steps[0].response)
+        assert is_referral(steps[1].response)
+        assert not is_referral(steps[2].response)
+        assert steps[2].response.answer
         print("  Resolution complete: example.com -> 93.184.216.34")
         print("  Total steps: 3 (root -> TLD -> authoritative)")

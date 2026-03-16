@@ -11,19 +11,18 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+import dns.flags
+import dns.message
+import dns.name
+import dns.rcode
+import dns.rdataclass
+import dns.rdatatype
+import dns.rrset
+
 import pytest
 
-from dnscurse.models import (
-    DNSHeader,
-    DNSPacket,
-    DNSQuestion,
-    DNSRecord,
-    QClass,
-    QType,
-    RCode,
-)
+from dnscurse.models import is_referral
 from dnscurse.resolver import (
-    MAX_CNAME_FOLLOWS,
     MAX_STEPS,
     ROOT_SERVERS,
     resolve,
@@ -34,50 +33,70 @@ from dnscurse.resolver import (
 # Helpers
 # -----------------------------------------------------------------------
 
-def _make_referral(
-    authority_zone: str,
-    ns_name: str,
-    ns_ip: str,
-) -> DNSPacket:
+def _msg(
+    *,
+    rcode: int = dns.rcode.NOERROR,
+    aa: bool = False,
+    answer: list[tuple[str, int, int, str]] | None = None,
+    authority: list[tuple[str, int, int, str]] | None = None,
+    additional: list[tuple[str, int, int, str]] | None = None,
+) -> dns.message.Message:
+    """Build a dns.message.Message from simplified tuples.
+
+    Each record tuple is (name, rdtype, ttl, rdata_text).
+    """
+    msg = dns.message.Message()
+    msg.flags |= dns.flags.QR
+    if aa:
+        msg.flags |= dns.flags.AA
+    msg.set_rcode(rcode)
+
+    for section, records in [
+        (msg.answer, answer or []),
+        (msg.authority, authority or []),
+        (msg.additional, additional or []),
+    ]:
+        for name, rdtype, ttl, rdata_text in records:
+            rrset = msg.find_rrset(
+                section,
+                dns.name.from_text(name),
+                dns.rdataclass.IN,
+                rdtype,
+                create=True,
+            )
+            rrset.update_ttl(ttl)
+            rd = dns.rdata.from_text(dns.rdataclass.IN, rdtype, rdata_text)
+            rrset.add(rd)
+
+    return msg
+
+
+def _make_referral(zone: str, ns_name: str, ns_ip: str) -> dns.message.Message:
     """Create a referral response."""
-    return DNSPacket(
-        header=DNSHeader(qr=1, rcode=0, nscount=1, arcount=1),
-        authorities=[
-            DNSRecord(authority_zone, QType.NS, QClass.IN, 172800, ns_name),
-        ],
-        additionals=[
-            DNSRecord(ns_name, QType.A, QClass.IN, 172800, ns_ip),
-        ],
+    return _msg(
+        authority=[(zone, dns.rdatatype.NS, 172800, ns_name)],
+        additional=[(ns_name, dns.rdatatype.A, 172800, ns_ip)],
     )
 
 
-def _make_answer(name: str, ip: str, aa: int = 1) -> DNSPacket:
+def _make_answer(name: str, ip: str) -> dns.message.Message:
     """Create a simple A record answer."""
-    return DNSPacket(
-        header=DNSHeader(qr=1, rcode=0, aa=aa, ancount=1),
-        answers=[
-            DNSRecord(name, QType.A, QClass.IN, 300, ip),
-        ],
-    )
+    return _msg(aa=True, answer=[(name, dns.rdatatype.A, 300, ip)])
 
 
-def _make_cname(name: str, target: str) -> DNSPacket:
+def _make_cname(name: str, target: str) -> dns.message.Message:
     """Create a CNAME answer."""
-    return DNSPacket(
-        header=DNSHeader(qr=1, rcode=0, aa=1, ancount=1),
-        answers=[
-            DNSRecord(name, QType.CNAME, QClass.IN, 3600, target),
-        ],
-    )
+    return _msg(aa=True, answer=[(name, dns.rdatatype.CNAME, 3600, target)])
 
 
-def _make_nxdomain(zone: str) -> DNSPacket:
-    return DNSPacket(
-        header=DNSHeader(qr=1, rcode=RCode.NXDOMAIN, aa=1, nscount=1),
-        authorities=[
-            DNSRecord(zone, QType.SOA, QClass.IN, 900,
-                      f"ns1.{zone} admin.{zone} 1 3600 900 604800 86400"),
-        ],
+def _make_nxdomain(zone: str) -> dns.message.Message:
+    return _msg(
+        rcode=dns.rcode.NXDOMAIN,
+        aa=True,
+        authority=[(
+            zone, dns.rdatatype.SOA, 900,
+            f"ns1.{zone} admin.{zone} 1 3600 900 604800 86400",
+        )],
     )
 
 
@@ -104,22 +123,19 @@ class TestResolverReferralChain:
         referred nameservers — so we don't need extra lookups.
         """
         responses = {
-            # Step 1: root refers to .com
-            ("example.com", QType.A, ROOT_SERVERS[0][1]):
-                _make_referral("com", "a.gtld-servers.net", "192.5.6.30"),
-            # Step 2: .com refers to example.com's NS
-            ("example.com", QType.A, "192.5.6.30"):
-                _make_referral("example.com", "a.iana-servers.net", "199.43.135.53"),
-            # Step 3: authoritative answers
-            ("example.com", QType.A, "199.43.135.53"):
-                _make_answer("example.com", "93.184.216.34"),
+            ("example.com", dns.rdatatype.A, ROOT_SERVERS[0][1]):
+                _make_referral("com.", "a.gtld-servers.net.", "192.5.6.30"),
+            ("example.com", dns.rdatatype.A, "192.5.6.30"):
+                _make_referral("example.com.", "a.iana-servers.net.", "199.43.135.53"),
+            ("example.com", dns.rdatatype.A, "199.43.135.53"):
+                _make_answer("example.com.", "93.184.216.34"),
         }
 
-        def fake_send(name, qtype, server_ip, timeout=5.0):
-            return responses[(name, qtype, server_ip)]
+        def fake_send(name, rdtype, server_ip, timeout=5.0):
+            return responses[(name, rdtype, server_ip)]
 
         with patch("dnscurse.resolver.send_query", side_effect=fake_send):
-            steps = resolve("example.com", QType.A)
+            steps = resolve("example.com", dns.rdatatype.A)
 
         assert len(steps) == 3
 
@@ -128,19 +144,16 @@ class TestResolverReferralChain:
             print(f"  {step.explain()}")
             print()
 
-        # Step 1: root referral
-        assert steps[0].response.is_referral()
+        assert is_referral(steps[0].response)
         assert steps[0].server_name == ROOT_SERVERS[0][0]
-        print(f"  Step 1: Root -> referred to .com TLD")
+        print("  Step 1: Root -> referred to .com TLD")
 
-        # Step 2: TLD referral
-        assert steps[1].response.is_referral()
+        assert is_referral(steps[1].response)
         assert steps[1].server_ip == "192.5.6.30"
-        print(f"  Step 2: .com TLD -> referred to example.com NS")
+        print("  Step 2: .com TLD -> referred to example.com NS")
 
-        # Step 3: final answer
-        assert steps[2].response.answers[0].rdata == "93.184.216.34"
-        print(f"  Step 3: Authoritative -> 93.184.216.34")
+        assert steps[2].response.answer
+        print("  Step 3: Authoritative -> answer")
 
     def test_cname_adds_extra_steps(self):
         """EXPLANATION: When a name is a CNAME alias, the resolver must:
@@ -151,31 +164,27 @@ class TestResolverReferralChain:
         This means resolving www.example.com requires resolving
         example.com as well, effectively doubling the steps.
         """
-        call_log = []
-
-        def fake_send(name, qtype, server_ip, timeout=5.0):
-            call_log.append((name, server_ip))
-
+        def fake_send(name, rdtype, server_ip, timeout=5.0):
             # First chain: www.example.com -> CNAME example.com
             if name == "www.example.com" and server_ip == ROOT_SERVERS[0][1]:
-                return _make_referral("com", "tld.ns", "10.0.0.1")
+                return _make_referral("com.", "tld.ns.", "10.0.0.1")
             if name == "www.example.com" and server_ip == "10.0.0.1":
-                return _make_referral("example.com", "auth.ns", "10.0.0.2")
+                return _make_referral("example.com.", "auth.ns.", "10.0.0.2")
             if name == "www.example.com" and server_ip == "10.0.0.2":
-                return _make_cname("www.example.com", "example.com")
+                return _make_cname("www.example.com.", "example.com.")
 
             # Second chain: resolve the CNAME target from root
-            if name == "example.com" and server_ip == ROOT_SERVERS[0][1]:
-                return _make_referral("com", "tld.ns", "10.0.0.1")
-            if name == "example.com" and server_ip == "10.0.0.1":
-                return _make_referral("example.com", "auth.ns", "10.0.0.2")
-            if name == "example.com" and server_ip == "10.0.0.2":
-                return _make_answer("example.com", "93.184.216.34")
+            if name == "example.com." and server_ip == ROOT_SERVERS[0][1]:
+                return _make_referral("com.", "tld.ns.", "10.0.0.1")
+            if name == "example.com." and server_ip == "10.0.0.1":
+                return _make_referral("example.com.", "auth.ns.", "10.0.0.2")
+            if name == "example.com." and server_ip == "10.0.0.2":
+                return _make_answer("example.com.", "93.184.216.34")
 
             raise RuntimeError(f"Unexpected query: {name} -> {server_ip}")
 
         with patch("dnscurse.resolver.send_query", side_effect=fake_send):
-            steps = resolve("www.example.com", QType.A)
+            steps = resolve("www.example.com", dns.rdatatype.A)
 
         # 3 steps for www.example.com + 3 steps for CNAME target
         assert len(steps) == 6
@@ -186,7 +195,10 @@ class TestResolverReferralChain:
             print()
 
         # Step 3 should be the CNAME
-        assert steps[2].response.answers[0].rtype == QType.CNAME
+        assert any(
+            rrset.rdtype == dns.rdatatype.CNAME
+            for rrset in steps[2].response.answer
+        )
         print("  CNAME detected at step 3 -> restart from root for target")
         print(f"  Total steps: {len(steps)} (3 for alias + 3 for target)")
 
@@ -196,20 +208,20 @@ class TestResolverReferralChain:
         The SOA record in the authority section tells caches how long
         to remember this negative result (negative caching TTL).
         """
-        def fake_send(name, qtype, server_ip, timeout=5.0):
+        def fake_send(name, rdtype, server_ip, timeout=5.0):
             if server_ip == ROOT_SERVERS[0][1]:
-                return _make_referral("com", "tld.ns", "10.0.0.1")
+                return _make_referral("com.", "tld.ns.", "10.0.0.1")
             if server_ip == "10.0.0.1":
-                return _make_referral("doesnotexist.com", "auth.ns", "10.0.0.2")
+                return _make_referral("doesnotexist.com.", "auth.ns.", "10.0.0.2")
             if server_ip == "10.0.0.2":
-                return _make_nxdomain("doesnotexist.com")
+                return _make_nxdomain("doesnotexist.com.")
             raise RuntimeError(f"Unexpected: {name} -> {server_ip}")
 
         with patch("dnscurse.resolver.send_query", side_effect=fake_send):
-            steps = resolve("doesnotexist.com", QType.A)
+            steps = resolve("doesnotexist.com", dns.rdatatype.A)
 
         assert len(steps) == 3
-        assert steps[-1].response.header.rcode == RCode.NXDOMAIN
+        assert steps[-1].response.rcode() == dns.rcode.NXDOMAIN
 
         print("\n  NXDOMAIN resolution:")
         for step in steps:
@@ -222,11 +234,11 @@ class TestResolverReferralChain:
         the step records the error so the user can see exactly where
         the resolution failed and which server was unresponsive.
         """
-        def fake_send(name, qtype, server_ip, timeout=5.0):
+        def fake_send(name, rdtype, server_ip, timeout=5.0):
             raise OSError("Network is unreachable")
 
         with patch("dnscurse.resolver.send_query", side_effect=fake_send):
-            steps = resolve("example.com", QType.A)
+            steps = resolve("example.com", dns.rdatatype.A)
 
         assert len(steps) == 1
         assert steps[0].error == "Network is unreachable"
@@ -246,40 +258,29 @@ class TestResolverReferralChain:
         The .com TLD doesn't have the IP for ns1.other-provider.net
         (that's in the .net zone), so no glue is provided.
         """
-        main_call_count = 0
-
-        def fake_send(name, qtype, server_ip, timeout=5.0):
-            nonlocal main_call_count
-
-            # Main query: example.com
+        def fake_send(name, rdtype, server_ip, timeout=5.0):
+            # Main query: example.com — referral without glue
             if name == "example.com" and server_ip == ROOT_SERVERS[0][1]:
-                main_call_count += 1
-                # Referral without glue
-                return DNSPacket(
-                    header=DNSHeader(qr=1, nscount=1),
-                    authorities=[
-                        DNSRecord("example.com", QType.NS, QClass.IN, 172800,
-                                  "ns1.other.net"),
-                    ],
+                return _msg(
+                    authority=[("example.com.", dns.rdatatype.NS, 172800, "ns1.other.net.")],
                 )
 
             # Sub-resolution of ns1.other.net
-            if name == "ns1.other.net" and server_ip == ROOT_SERVERS[0][1]:
-                return _make_referral("net", "tld.ns", "10.0.0.1")
-            if name == "ns1.other.net" and server_ip == "10.0.0.1":
-                return _make_answer("ns1.other.net", "10.0.0.99")
+            if name == "ns1.other.net." and server_ip == ROOT_SERVERS[0][1]:
+                return _make_referral("net.", "tld.ns.", "10.0.0.1")
+            if name == "ns1.other.net." and server_ip == "10.0.0.1":
+                return _make_answer("ns1.other.net.", "10.0.0.99")
 
             # Now we can query the resolved NS
             if name == "example.com" and server_ip == "10.0.0.99":
-                return _make_answer("example.com", "1.2.3.4")
+                return _make_answer("example.com.", "1.2.3.4")
 
             raise RuntimeError(f"Unexpected: {name} @ {server_ip}")
 
         with patch("dnscurse.resolver.send_query", side_effect=fake_send):
-            steps = resolve("example.com", QType.A)
+            steps = resolve("example.com", dns.rdatatype.A)
 
-        # Should have the referral step + the final answer
-        assert any(s.response and s.response.answers for s in steps)
+        assert any(s.response and s.response.answer for s in steps)
 
         print("\n  Referral without glue:")
         for step in steps:
@@ -291,12 +292,11 @@ class TestResolverReferralChain:
         """EXPLANATION: The resolver limits total steps to prevent infinite
         loops from circular referrals or pathological delegation chains.
         """
-        def fake_send(name, qtype, server_ip, timeout=5.0):
-            # Always return a referral — never an answer
-            return _make_referral("zone.example", "ns.loop", "10.0.0.1")
+        def fake_send(name, rdtype, server_ip, timeout=5.0):
+            return _make_referral("zone.example.", "ns.loop.", "10.0.0.1")
 
         with patch("dnscurse.resolver.send_query", side_effect=fake_send):
-            steps = resolve("loop.example.com", QType.A)
+            steps = resolve("loop.example.com", dns.rdatatype.A)
 
         assert len(steps) == MAX_STEPS
         print(f"  Stopped after {MAX_STEPS} steps (infinite referral loop)")
@@ -321,7 +321,6 @@ class TestRootServers:
     def test_root_servers_have_names_and_ips(self):
         for name, ip in ROOT_SERVERS:
             assert name.endswith(".root-servers.net")
-            # Basic IPv4 validation
             parts = ip.split(".")
             assert len(parts) == 4
             assert all(0 <= int(p) <= 255 for p in parts)
@@ -348,7 +347,7 @@ class TestResolverLive:
         resolves.  It's the safest target for integration tests.
         Expected path: root -> .com TLD -> IANA authoritative -> answer
         """
-        steps = resolve("example.com", QType.A, timeout=10.0)
+        steps = resolve("example.com", dns.rdatatype.A, timeout=10.0)
 
         assert len(steps) >= 2, "Should take at least 2 steps"
 
@@ -357,18 +356,17 @@ class TestResolverLive:
             print(f"  {step.explain()}")
             print()
 
-        # Final step should have an answer
         final = steps[-1]
         assert final.response is not None
-        assert final.response.answers, "Should get an A record answer"
-        print(f"  Final answer: {final.response.answers[0]}")
+        assert final.response.answer, "Should get an A record answer"
+        print(f"  Final answer found in {len(steps)} steps")
 
     def test_resolve_nonexistent_domain(self):
         """EXPLANATION: Querying a domain that doesn't exist should
         eventually result in NXDOMAIN from the authoritative server.
         """
         steps = resolve("this-domain-definitely-does-not-exist-12345.com",
-                        QType.A, timeout=10.0)
+                        dns.rdatatype.A, timeout=10.0)
 
         print("\n  Live resolution of non-existent domain:")
         for step in steps:
@@ -377,4 +375,5 @@ class TestResolverLive:
 
         final = steps[-1]
         if final.response:
-            print(f"  Final RCODE: {RCode(final.response.header.rcode).name}")
+            rcode_text = dns.rcode.to_text(final.response.rcode())
+            print(f"  Final RCODE: {rcode_text}")
