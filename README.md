@@ -4,7 +4,7 @@ A traceroute for DNS. DNScurse performs iterative resolution from the root serve
 
 Unlike `dig +trace`, DNScurse walks the chain itself with `RD=0` (Recursion Desired off), so the output reflects the real path a resolver takes — including glue records, CNAME restarts, and SERVFAIL failovers.
 
-![demo](docs/demo.svg)
+![demo](docs/demo.gif)
 
 The domain header is coloured at each step: the label currently being delegated is **yellow**, already-resolved labels are normal, and the subdomain prefix not yet looked up is dim.
 
