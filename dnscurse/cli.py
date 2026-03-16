@@ -128,9 +128,9 @@ def _format_tree(steps: list[RecursionStep], color: bool = True) -> str:
     # Node 0 is always the root zone ".".
     # Node N's zone label is what node N-1 referred to.
     nodes: list[tuple[str, str]] = [(".", first.server_name)]
-    for i, step in enumerate(steps[1:], start=0):
-        zone = get_delegated_zone(steps[i]) or "?"
-        nodes.append((zone.rstrip(".") + ".", step.server_name))
+    for prev, step in zip(steps, steps[1:]):
+        zone = get_delegated_zone(prev) or "?"
+        nodes.append((zone, step.server_name))
 
     # Color the query name: each label colored by its delegation depth,
     # matching the corresponding tree node color (rightmost label = depth 1).
@@ -155,10 +155,10 @@ def _format_tree(steps: list[RecursionStep], color: bool = True) -> str:
             return f"{_DIM}.{_RESET}"
         # zone is like "com." or "example.com." — split off first label
         dot = zone.find(".")
-        first = zone[:dot]
+        label = zone[:dot]
         rest = zone[dot:]  # includes the trailing dot
         c = _level_color(depth)
-        return f"{c}{first}{_RESET}{rest}"
+        return f"{c}{label}{_RESET}{rest}"
 
     con = f"{_DIM}\u2514\u2500\u2500 {_RESET}" if color else "\u2514\u2500\u2500 "
 
@@ -179,7 +179,7 @@ def _format_tree(steps: list[RecursionStep], color: bool = True) -> str:
     lr = _RESET if color else ""
     # The leaf label is the leftmost label of the query name — the part
     # not covered by any delegation zone, colored at the leaf depth.
-    leaf_label = first.query_name.rstrip(".").split(".")[0]
+    leaf_label = query_labels[0]
     leaf_label_str = f"{lc}{leaf_label}{lr} " if color else ""
 
     if final.error:
