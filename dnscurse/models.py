@@ -80,6 +80,22 @@ def get_referral_ns_names(msg: dns.message.Message) -> list[str]:
     return names
 
 
+def get_delegated_zone(step: RecursionStep) -> str | None:
+    """Return the DNS zone covered at this resolution step (with trailing dot).
+
+    - Referral: owner name of the NS rrset in authority (e.g. "com.", "example.com.")
+    - Answer / NXDOMAIN / other: step.query_name
+    - Error / no response: None
+    """
+    if step.error or step.response is None:
+        return None
+    if is_referral(step.response):
+        for rrset in step.response.authority:
+            if rrset.rdtype == dns.rdatatype.NS:
+                return str(rrset.name)  # e.g. "com."
+    return step.query_name  # answer, NXDOMAIN, NODATA
+
+
 def get_cname_target(msg: dns.message.Message, name: str) -> str | None:
     """If the answer contains a CNAME for name, return the target.
 

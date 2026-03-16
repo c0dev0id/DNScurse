@@ -9,45 +9,118 @@ import dns.rcode
 import dns.rdatatype
 
 from .models import (
-    RecursionStep,
     format_rrset,
+    get_cname_target,
+    get_delegated_zone,
     get_referral_ns_names,
     is_referral,
+    RecursionStep,
 )
 from .resolver import resolve
 
 # Common query types for CLI choices
 _CLI_TYPES = ["A", "AAAA", "NS", "CNAME", "SOA", "MX", "TXT", "PTR"]
 
+# ANSI escape codes for terminal color output
+_DIM    = "\033[2m"
+_YELLOW = "\033[33m"
+_RESET  = "\033[0m"
 
-def _step_response_summary(step: RecursionStep) -> str:
+
+def _colorize_domain(domain: str, zone: str | None, color: bool = True) -> str:
+    """Return domain string with the resolved zone highlighted in yellow.
+
+    The prefix (labels above the current zone) is dimmed, and the zone
+    portion is yellow. This visually shows which part of the name each
+    server in the delegation chain is responsible for.
+    """
+    domain_plain = domain.rstrip(".")
+    if not color:
+        return domain_plain
+
+    zone_plain = zone.rstrip(".").lower() if zone else ""
+    domain_lower = domain_plain.lower()
+
+    if not zone_plain:
+        return f"{_DIM}{domain_plain}{_RESET}"
+
+    if zone_plain == domain_lower:
+        return f"{_YELLOW}{domain_plain}{_RESET}"
+
+    if domain_lower.endswith(zone_plain):
+        # Split at the zone boundary, keeping the dot before the zone
+        prefix = domain_plain[: -len(zone_plain)]
+        zone_part = domain_plain[-len(zone_plain):]
+        return f"{_DIM}{prefix}{_RESET}{_YELLOW}{zone_part}{_RESET}"
+
+    # Fallback: full domain yellow
+    return f"{_YELLOW}{domain_plain}{_RESET}"
+
+
+def _format_result_line(step: RecursionStep) -> str:
     """One-line summary of what happened in this step."""
     if step.error:
-        return f"ERROR: {step.error}"
+        return f"error: {step.error}"
 
     resp = step.response
     if resp is None:
         return "(no response)"
 
-    rcode = dns.rcode.to_text(resp.rcode())
-
     if resp.rcode() != dns.rcode.NOERROR:
-        return rcode
+        return dns.rcode.to_text(resp.rcode())
 
     if resp.answer:
+        cname_target = get_cname_target(resp, step.query_name)
+        if cname_target:
+            return f"cname \u2192 {cname_target.rstrip('.')}"
         parts = []
         for rrset in resp.answer:
             rtype = dns.rdatatype.to_text(rrset.rdtype)
-            parts.extend(f"{rtype} {rr}" for rr in rrset)
+            for rr in rrset:
+                parts.append(f"{rtype} {rr}")
         return ", ".join(parts)
 
     if is_referral(resp):
         ns_names = get_referral_ns_names(resp)
         if ns_names:
-            return "→ " + ", ".join(ns_names)
-        return "→ (referral)"
+            return "referral \u2192 " + ", ".join(ns_names)
+        return "referral"
 
     return "NODATA"
+
+
+def _format_step_block(step: RecursionStep, color: bool = True) -> str:
+    """Format one resolution step as an indented block.
+
+    Header line shows the domain name with the resolved zone highlighted,
+    followed by indented detail lines (server, rcode, result, time).
+    """
+    zone = get_delegated_zone(step)
+    header = _colorize_domain(step.query_name, zone, color)
+
+    resp = step.response
+    if resp is not None and not step.error:
+        rcode_text = dns.rcode.to_text(resp.rcode())
+    else:
+        rcode_text = "\u2014"
+
+    if step.rtt_ms is not None:
+        time_text = f"{step.rtt_ms:.1f}ms"
+    else:
+        time_text = "\u2014"
+
+    server_text = f"{step.server_name} ({step.server_ip})"
+    result_text = _format_result_line(step)
+
+    lines = [
+        header,
+        f"  server  {server_text}",
+        f"  rcode   {rcode_text}",
+        f"  result  {result_text}",
+        f"  time    {time_text}",
+        "",
+    ]
+    return "\n".join(lines)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -78,50 +151,13 @@ def main(argv: list[str] | None = None) -> int:
         print("No resolution steps.")
         return 1
 
-    # Compute column widths for alignment.
-    col_step = 4  # " 1 " etc
-    col_server = max(
-        len(f"{s.server_name} ({s.server_ip})") for s in steps
-    )
-    col_query = max(
-        len(f"{s.query_name} {s.query_type}") for s in steps
-    )
+    color = sys.stdout.isatty()
 
-    # Header
-    hdr = (
-        f"{'#':>{col_step}}  "
-        f"{'SERVER':<{col_server}}  "
-        f"{'QUERY':<{col_query}}  "
-        f"{'TIME':>8}  "
-        f"RESPONSE"
-    )
-    print(hdr)
-    print("-" * len(hdr))
-
-    # Rows
     for step in steps:
-        num = f"{step.step_number:>{col_step}}"
-        server = f"{step.server_name} ({step.server_ip})"
-        query = f"{step.query_name} {step.query_type}"
+        print(_format_step_block(step, color=color))
 
-        if step.rtt_ms is not None:
-            rtt = f"{step.rtt_ms:>6.1f}ms"
-        else:
-            rtt = f"{'—':>8}"
-
-        summary = _step_response_summary(step)
-
-        print(
-            f"{num}  "
-            f"{server:<{col_server}}  "
-            f"{query:<{col_query}}  "
-            f"{rtt}  "
-            f"{summary}"
-        )
-
-    # Final summary line
+    # Final answer summary
     final = steps[-1]
-    print()
     if final.response and final.response.answer:
         print("  Answer:")
         for rrset in final.response.answer:

@@ -19,6 +19,7 @@ from dnscurse.models import (
     RecursionStep,
     format_rrset,
     get_cname_target,
+    get_delegated_zone,
     get_referral_ns_ips,
     get_referral_ns_names,
     is_referral,
@@ -408,3 +409,72 @@ class TestRecursionStepExplanation:
         assert steps[2].response.answer
         print("  Resolution complete: example.com -> 93.184.216.34")
         print("  Total steps: 3 (root -> TLD -> authoritative)")
+
+
+# -----------------------------------------------------------------------
+# get_delegated_zone
+# -----------------------------------------------------------------------
+
+class TestGetDelegatedZone:
+    """EXPLANATION: get_delegated_zone() answers "which DNS zone does this
+    step cover?".  For referrals the zone is the NS rrset owner name in the
+    authority section — that is the zone being delegated to the next tier.
+    For final answers (or NXDOMAIN) the zone is the query name itself.
+    """
+
+    def _step(self, **kwargs) -> RecursionStep:
+        defaults = dict(
+            step_number=1,
+            description="test",
+            server_ip="1.2.3.4",
+            server_name="ns.example",
+            query_name="www.example.com.",
+            query_type="A",
+        )
+        defaults.update(kwargs)
+        return RecursionStep(**defaults)
+
+    def test_referral_returns_ns_owner_zone(self):
+        """EXPLANATION: For a referral step, the delegated zone comes from
+        the owner name of the NS rrset in the authority section — not from
+        the query name.  A root server returning 'com. NS a.gtld-servers.net.'
+        means the zone 'com.' is being handed off to the TLD servers.
+        """
+        step = self._step(
+            response=_msg(
+                authority=[("com.", dns.rdatatype.NS, 172800, "a.gtld-servers.net.")],
+                additional=[("a.gtld-servers.net.", dns.rdatatype.A, 172800, "192.5.6.30")],
+            ),
+        )
+        assert get_delegated_zone(step) == "com."
+        print("  Referral: delegated zone is 'com.'")
+
+    def test_answer_returns_query_name(self):
+        step = self._step(
+            response=_msg(
+                aa=True,
+                answer=[("www.example.com.", dns.rdatatype.A, 300, "93.184.216.34")],
+            ),
+        )
+        assert get_delegated_zone(step) == "www.example.com."
+        print("  Answer: delegated zone is query name")
+
+    def test_nxdomain_returns_query_name(self):
+        step = self._step(
+            query_name="nope.example.com.",
+            response=_msg(
+                rcode=dns.rcode.NXDOMAIN,
+                aa=True,
+                authority=[(
+                    "example.com.", dns.rdatatype.SOA, 900,
+                    "ns1.example.com. admin.example.com. 2024010101 3600 900 604800 86400",
+                )],
+            ),
+        )
+        assert get_delegated_zone(step) == "nope.example.com."
+        print("  NXDOMAIN: delegated zone is query name")
+
+    def test_error_returns_none(self):
+        step = self._step(error="timed out")
+        assert get_delegated_zone(step) is None
+        print("  Error step: delegated zone is None")
