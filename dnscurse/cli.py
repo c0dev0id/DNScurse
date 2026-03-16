@@ -44,12 +44,17 @@ def _level_color(depth: int) -> str:
     return _LEVEL_COLORS[depth % len(_LEVEL_COLORS)]
 
 
-def _colorize_domain(domain: str, zone: str | None, color: bool = True) -> str:
-    """Return domain string with the resolved zone highlighted in yellow.
+def _colorize_domain(domain: str, zone: str | None, parent_zone: str | None = None,
+                     focus_color: str = _YELLOW, color: bool = True) -> str:
+    """Colorize a domain name for one resolution step.
 
-    The prefix (labels above the current zone) is dimmed, and the zone
-    portion is yellow. This visually shows which part of the name each
-    server in the delegation chain is responsible for.
+    Colors only the "new" labels introduced at this hop — the labels that
+    are in the current zone but not in the parent zone. The prefix (labels
+    above the zone) and the already-resolved suffix (the parent zone part)
+    are both dimmed.
+
+      parent="de.", zone="codevoid.de.", domain="dalek.home.codevoid.de"
+      → DIM "dalek.home." + COLOR "codevoid" + DIM ".de"
     """
     domain_plain = domain.rstrip(".")
     if not color:
@@ -61,17 +66,34 @@ def _colorize_domain(domain: str, zone: str | None, color: bool = True) -> str:
     if not zone_plain:
         return f"{_DIM}{domain_plain}{_RESET}"
 
+    # Split domain into prefix (above zone) and zone_part (within zone)
     if zone_plain == domain_lower:
-        return f"{_YELLOW}{domain_plain}{_RESET}"
-
-    if domain_lower.endswith(zone_plain):
-        # Split at the zone boundary, keeping the dot before the zone
+        prefix, zone_part = "", domain_plain
+    elif domain_lower.endswith(zone_plain):
         prefix = domain_plain[: -len(zone_plain)]
         zone_part = domain_plain[-len(zone_plain):]
-        return f"{_DIM}{prefix}{_RESET}{_YELLOW}{zone_part}{_RESET}"
+    else:
+        return f"{focus_color}{domain_plain}{_RESET}"  # fallback
 
-    # Fallback: full domain yellow
-    return f"{_YELLOW}{domain_plain}{_RESET}"
+    # Within zone_part, separate new labels from already-resolved suffix.
+    # New labels = zone minus parent zone (the freshly delegated part).
+    parent_plain = parent_zone.rstrip(".").lower() if parent_zone else ""
+    zone_lower_part = zone_part.lower()
+
+    if parent_plain and zone_lower_part.endswith(parent_plain):
+        new_len = len(zone_part) - len(parent_plain) - 1  # -1 for dot separator
+        focus = zone_part[:new_len]
+        resolved = zone_part[new_len:]  # includes leading dot
+    else:
+        # No parent context — color only the first label of the zone
+        dot = zone_part.find(".")
+        focus, resolved = (zone_part, "") if dot == -1 else (zone_part[:dot], zone_part[dot:])
+
+    result = f"{_DIM}{prefix}{_RESET}" if prefix else ""
+    result += f"{focus_color}{focus}{_RESET}"
+    if resolved:
+        result += f"{_DIM}{resolved}{_RESET}"
+    return result
 
 
 def _format_result_line(step: RecursionStep) -> str:
@@ -134,16 +156,29 @@ def _format_tree(steps: list[RecursionStep], color: bool = True) -> str:
         zone = get_delegated_zone(prev) or "?"
         nodes.append((zone, step.server_name))
 
-    # Color the query name: each label colored by its delegation depth,
-    # matching the corresponding tree node color (rightmost label = depth 1).
+    # Color the query name: labels introduced at the same hop share one color.
+    # For each node at depth D, its new labels = zone_D minus zone_{D-1}.
+    # Any labels above the deepest zone are colored at leaf depth.
     query_labels = first.query_name.rstrip(".").split(".")
+    n = len(query_labels)
+    label_colors = [_level_color(len(nodes))] * n  # default: leaf color
+
+    for depth, (zone, _) in enumerate(nodes):
+        if zone == ".":
+            continue
+        zone_label_count = len(zone.rstrip(".").split("."))
+        parent_plain = nodes[depth - 1][0].rstrip(".")
+        parent_label_count = 0 if parent_plain in (".", "") else len(parent_plain.split("."))
+        new_count = zone_label_count - parent_label_count
+        start = n - zone_label_count
+        for i in range(start, start + new_count):
+            if 0 <= i < n:
+                label_colors[i] = _level_color(depth)
+
     if color:
-        colored_labels = [
-            f"{_level_color(i + 1)}{label}{_RESET}"
-            for i, label in enumerate(reversed(query_labels))
-        ]
-        colored_labels.reverse()
-        lines[0] = ".".join(colored_labels) + f" {first.query_type}"
+        lines[0] = ".".join(
+            f"{label_colors[i]}{label}{_RESET}" for i, label in enumerate(query_labels)
+        ) + f" {first.query_type}"
 
     def _color_zone(zone: str, depth: int) -> str:
         """Color only the leftmost label of a zone — the newly delegated part.
@@ -173,16 +208,20 @@ def _format_tree(steps: list[RecursionStep], color: bool = True) -> str:
             connector = con
         lines.append(f"{indent}{connector}{_color_zone(zone, depth)} ({server})")
 
-    # Leaf: answer record(s) or error — color only the record type label
+    # Leaf: answer record(s) or error.
+    # Show the labels not covered by any delegation zone (the "host part"
+    # within the final authoritative zone), colored at leaf depth.
     final = steps[-1]
     leaf_depth = len(nodes)
     leaf_indent = "    " * leaf_depth + con
     lc = _level_color(leaf_depth) if color else ""
     lr = _RESET if color else ""
-    # The leaf label is the leftmost label of the query name — the part
-    # not covered by any delegation zone, colored at the leaf depth.
-    leaf_label = query_labels[0]
-    leaf_label_str = f"{lc}{leaf_label}{lr} " if color else ""
+
+    last_zone_plain = nodes[-1][0].rstrip(".")
+    last_zone_label_count = 0 if last_zone_plain in (".", "") else len(last_zone_plain.split("."))
+    new_label_count = n - last_zone_label_count
+    leaf_new_labels = ".".join(query_labels[:new_label_count]) if new_label_count > 0 else ""
+    leaf_label_str = f"{lc}{leaf_new_labels}{lr} " if (color and leaf_new_labels) else ""
 
     if final.error:
         lines.append(f"{leaf_indent}{leaf_label_str}error: {final.error}")
@@ -199,14 +238,16 @@ def _format_tree(steps: list[RecursionStep], color: bool = True) -> str:
     return "\n".join(lines)
 
 
-def _format_step_block(step: RecursionStep, color: bool = True) -> str:
+def _format_step_block(step: RecursionStep, color: bool = True,
+                       parent_zone: str | None = None, step_idx: int = 0) -> str:
     """Format one resolution step as an indented block.
 
     Header line shows the domain name with the resolved zone highlighted,
     followed by indented detail lines (server, rcode, result, time).
     """
     zone = get_delegated_zone(step)
-    header = _colorize_domain(step.query_name, zone, color)
+    fc = _level_color(step_idx + 1) if color else _YELLOW
+    header = _colorize_domain(step.query_name, zone, parent_zone, fc, color)
 
     resp = step.response
     if resp is not None and not step.error:
@@ -278,8 +319,10 @@ def main(argv: list[str] | None = None) -> int:
         print(_format_tree(steps, color=color))
         return 0
 
-    for step in steps:
-        print(_format_step_block(step, color=color))
+    prev_zone: str | None = None
+    for step_idx, step in enumerate(steps):
+        print(_format_step_block(step, color=color, parent_zone=prev_zone, step_idx=step_idx))
+        prev_zone = get_delegated_zone(step)
 
     # Final answer summary
     final = steps[-1]
