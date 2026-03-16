@@ -127,6 +127,7 @@ class RecursionStep:
     query_type: str
     response: dns.message.Message | None = None
     error: str | None = None
+    rtt_ms: float | None = None
 
     def explain(self) -> str:
         """Return a human-readable explanation of this recursion step.

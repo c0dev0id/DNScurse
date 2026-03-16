@@ -11,6 +11,8 @@ mandates the behavior.
 
 from __future__ import annotations
 
+import time
+
 import dns.flags
 import dns.message
 import dns.query
@@ -134,8 +136,11 @@ def resolve(name: str, rdtype: int = dns.rdatatype.A,
         # current server, which is either a root server (first step) or
         # a nameserver we were referred to.
         try:
+            t0 = time.monotonic()
             response = send_query(current_name, current_rdtype, server_ip, timeout)
+            step.rtt_ms = (time.monotonic() - t0) * 1000
         except Exception as exc:
+            step.rtt_ms = (time.monotonic() - t0) * 1000
             # Network failure (timeout, unreachable, etc.). Record the
             # error so the user can see exactly which server failed.
             # RFC 1034 Section 5.3.3, Step 3: "if the response shows a
