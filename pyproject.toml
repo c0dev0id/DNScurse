@@ -25,6 +25,7 @@ include = ["dnscurse*"]
 
 [tool.setuptools.data-files]
 "share/man/man1" = ["man/dnscurse.1"]
+"share/man/man3" = ["man/dnscurse.3"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
