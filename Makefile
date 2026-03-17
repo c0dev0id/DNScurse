@@ -32,7 +32,13 @@ install:
 uninstall:
 	pipx uninstall dnscurse
 
-man:
+docs/dnscurse.1.txt: man/dnscurse.1
+	mandoc -T ascii man/dnscurse.1 | col -bx > docs/dnscurse.1.txt
+
+docs/dnscurse.3.txt: man/dnscurse.3
+	mandoc -T ascii man/dnscurse.3 | col -bx > docs/dnscurse.3.txt
+
+man: docs/dnscurse.1.txt docs/dnscurse.3.txt
 	mandoc -a man/dnscurse.1
 
 clean:
