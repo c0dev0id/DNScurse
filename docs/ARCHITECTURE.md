@@ -14,30 +14,7 @@ The tool has a single responsibility: perform iterative DNS resolution from root
 
 ## 2. System Context
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                       User                             │
-│          dnscurse www.example.com [-c] [-t AAAA]       │
-└──────────────────────┬──────────────────────────────────┘
-                       │ stdin/stdout (TTY)
-┌──────────────────────▼──────────────────────────────────┐
-│                  DNScurse Process                       │
-│                                                         │
-│   cli.py ──► resolver.py ──► dns.query.udp()           │
-│      │            │                │                    │
-│      │       models.py         dnspython                │
-│      │                             │                    │
-│      └──── ANSI terminal output    │ UDP/53             │
-└───────────────────────────────────┬────────────────────┘
-                                    │
-              ┌─────────────────────▼──────────────────┐
-              │           Public DNS Infrastructure     │
-              │                                         │
-              │  Root servers (.)                       │
-              │    └── TLD servers (com., de., ...)     │
-              │        └── Authoritative servers        │
-              └─────────────────────────────────────────┘
-```
+![System Context Diagram](system-context.svg)
 
 There are no background threads, no persistent processes, no sockets held open between steps. Each DNS query is a discrete UDP send/receive within a single synchronous call stack.
 
