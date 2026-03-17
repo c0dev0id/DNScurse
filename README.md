@@ -1,9 +1,6 @@
 # DNScurse
 
-[![Lint](https://github.com/c0dev0id/DNScurse/actions/workflows/test.yml/badge.svg?event=push&job=lint)](https://github.com/c0dev0id/DNScurse/actions/workflows/test.yml)
-[![Build](https://github.com/c0dev0id/DNScurse/actions/workflows/test.yml/badge.svg?event=push&job=build)](https://github.com/c0dev0id/DNScurse/actions/workflows/test.yml)
-[![Unit Tests](https://github.com/c0dev0id/DNScurse/actions/workflows/test.yml/badge.svg?event=push&job=unit-tests)](https://github.com/c0dev0id/DNScurse/actions/workflows/test.yml)
-[![Integration Tests](https://github.com/c0dev0id/DNScurse/actions/workflows/test.yml/badge.svg?event=push&job=integration-tests)](https://github.com/c0dev0id/DNScurse/actions/workflows/test.yml)
+[![Tests](https://github.com/c0dev0id/DNScurse/actions/workflows/test.yml/badge.svg)](https://github.com/c0dev0id/DNScurse/actions/workflows/test.yml)
 
 A traceroute for DNS. DNScurse performs iterative resolution from the root servers, showing every delegation step so you can see exactly how a domain name gets resolved.
 
