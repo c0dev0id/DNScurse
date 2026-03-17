@@ -34,6 +34,8 @@ DNScurse is a Python CLI DNS recursor debug tool. It performs iterative DNS reso
 ```
 DNScurse/
 ├── CLAUDE.md
+├── README.md
+├── Makefile
 ├── pyproject.toml
 ├── .gitignore
 ├── .github/workflows/test.yml
@@ -43,6 +45,11 @@ DNScurse/
 │   ├── cli.py             # CLI entry point and argument parsing
 │   ├── models.py          # RecursionStep + helper functions for dns.message.Message
 │   └── resolver.py        # Iterative resolution engine
+├── man/
+│   ├── dnscurse.1         # User command man page
+│   └── dnscurse.3         # Library API man page
+├── docs/
+│   └── ARCHITECTURE.md    # In-depth architecture documentation
 └── tests/
     ├── __init__.py
     ├── conftest.py

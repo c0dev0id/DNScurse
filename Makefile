@@ -3,7 +3,7 @@ PYTHON := $(VENV)/bin/python
 PIP    := $(VENV)/bin/pip3
 PYTEST := $(VENV)/bin/pytest
 
-.PHONY: all build run test clean install uninstall man
+.PHONY: all build run test test-net clean install uninstall man
 
 $(VENV):
 	python3 -m venv $(VENV)
@@ -16,6 +16,9 @@ run: build
 
 test: build
 	$(PYTEST) -m "not network"
+
+test-net: build
+	$(PYTEST) -m "network"
 
 install:
 	pipx install .

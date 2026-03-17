@@ -262,7 +262,7 @@ make build
 make test
 
 # Run integration tests against live root servers
-make test ARGS="-m network"
+make test-net
 
 # View the man page
 make man
