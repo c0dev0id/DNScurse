@@ -161,7 +161,6 @@ def resolve(name: str, rdtype: int | str = dns.rdatatype.A,
                 continue
             break
 
-        step.rtt_ms = (time.monotonic() - t0) * 1000
         step.response = response
         # RFC 1035 Section 4.1.1: TC (truncation) flag means the response
         # was cut off because it exceeded UDP message size (512 bytes by
