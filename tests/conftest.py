@@ -1,6 +1,5 @@
 """Pytest configuration for DNScurse tests."""
 
-import pytest
 
 
 def pytest_configure(config):

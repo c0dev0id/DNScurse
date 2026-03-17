@@ -3,7 +3,7 @@ PYTHON := $(VENV)/bin/python
 PIP    := $(VENV)/bin/pip3
 PYTEST := $(VENV)/bin/pytest
 
-.PHONY: build run test test-net install uninstall man clean
+.PHONY: build run test test-net lint install uninstall man clean
 
 build: $(VENV)
 	$(PIP) install -e ".[dev]"
@@ -16,6 +16,9 @@ test: build
 
 test-net: build
 	$(PYTEST) -m "network"
+
+lint: build
+	$(VENV)/bin/ruff check dnscurse/ tests/
 
 install:
 	pipx install .

@@ -10,7 +10,6 @@ Skip CLI tests:      pytest -m "not cli"
 
 from __future__ import annotations
 
-from io import StringIO
 from unittest.mock import patch
 
 import dns.flags
@@ -19,12 +18,10 @@ import dns.name
 import dns.rcode
 import dns.rdataclass
 import dns.rdatatype
-
 import pytest
 
 from dnscurse._cli import main
 from dnscurse.models import RecursionStep
-
 
 # -----------------------------------------------------------------------
 # Helpers

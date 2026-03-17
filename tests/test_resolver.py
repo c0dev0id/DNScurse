@@ -18,7 +18,6 @@ import dns.rcode
 import dns.rdataclass
 import dns.rdatatype
 import dns.rrset
-
 import pytest
 
 from dnscurse.models import is_referral
@@ -28,7 +27,6 @@ from dnscurse.resolver import (
     ROOT_SERVERS,
     resolve,
 )
-
 
 # -----------------------------------------------------------------------
 # Helpers
@@ -596,9 +594,15 @@ class TestPublicAPI:
 
     def test_top_level_imports(self):
         """Core API is importable from the package root."""
-        from dnscurse import resolve, RecursionStep, send_query
-        from dnscurse import ROOT_SERVERS, DEFAULT_TIMEOUT
-        from dnscurse import is_referral, get_cname_target
+        from dnscurse import (  # noqa: F401
+            DEFAULT_TIMEOUT,
+            ROOT_SERVERS,
+            RecursionStep,
+            get_cname_target,
+            is_referral,
+            resolve,
+            send_query,
+        )
 
         assert callable(resolve)
         assert callable(send_query)

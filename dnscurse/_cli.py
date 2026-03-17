@@ -11,12 +11,12 @@ import dns.rcode
 import dns.rdatatype
 
 from .models import (
+    RecursionStep,
     format_rrset,
     get_cname_target,
     get_delegated_zone,
     get_referral_ns_names,
     is_referral,
-    RecursionStep,
 )
 from .resolver import resolve
 
