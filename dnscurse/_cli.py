@@ -16,6 +16,7 @@ from .models import (
     get_cname_target,
     get_delegated_zone,
     get_referral_ns_names,
+    get_referral_ns_servers,
     is_referral,
 )
 from .resolver import resolve
@@ -120,9 +121,13 @@ def _format_result_line(step: RecursionStep) -> str:
         return ", ".join(parts)
 
     if is_referral(resp):
+        ns_servers = get_referral_ns_servers(resp)
+        if ns_servers:
+            parts = [f"{name.rstrip('.')} ({ip} glue)" for name, ip in ns_servers]
+            return "referral \u2192 " + ", ".join(parts)
         ns_names = get_referral_ns_names(resp)
         if ns_names:
-            return "referral \u2192 " + ", ".join(ns_names)
+            return "referral \u2192 " + ", ".join(n.rstrip(".") for n in ns_names)
         return "referral"
 
     return "NODATA"
@@ -148,13 +153,16 @@ def _format_tree(steps: list[RecursionStep], color: bool = True) -> str:
     first = steps[0]
     lines = [f"{first.query_name} {first.query_type}"]
 
-    # Build (zone_label, server_name) pairs for each node.
-    # Node 0 is always the root zone ".".
-    # Node N's zone label is what node N-1 referred to.
-    nodes: list[tuple[str, str]] = [(".", first.server_name)]
+    # Build (zone_label, server_name, glue_ip) triples for each node.
+    # Node 0 is always the root zone "."; its IP comes from ROOT_SERVERS, not glue.
+    # Node N's zone label is what node N-1 referred to; glue_ip is non-empty when
+    # the IP was supplied in that referral's additional section.
+    nodes: list[tuple[str, str, str]] = [(".", first.server_name, "")]
     for prev, step in zip(steps, steps[1:]):
         zone = get_delegated_zone(prev) or "?"
-        nodes.append((zone, step.server_name))
+        glue = {ip for _, ip in get_referral_ns_servers(prev.response)} if prev.response else set()
+        glue_ip = step.server_ip if step.server_ip in glue else ""
+        nodes.append((zone, step.server_name, glue_ip))
 
     # Color the query name: labels introduced at the same hop share one color.
     # For each node at depth D, its new labels = zone_D minus zone_{D-1}.
@@ -163,7 +171,7 @@ def _format_tree(steps: list[RecursionStep], color: bool = True) -> str:
     n = len(query_labels)
     label_colors = [_level_color(len(nodes))] * n  # default: leaf color
 
-    for depth, (zone, _) in enumerate(nodes):
+    for depth, (zone, _, _glue) in enumerate(nodes):
         if zone == ".":
             continue
         zone_label_count = len(zone.rstrip(".").split("."))
@@ -199,14 +207,18 @@ def _format_tree(steps: list[RecursionStep], color: bool = True) -> str:
 
     con = f"{_DIM}\u2514\u2500\u2500 {_RESET}" if color else "\u2514\u2500\u2500 "
 
-    for depth, (zone, server) in enumerate(nodes):
+    for depth, (zone, server, glue_ip) in enumerate(nodes):
         if depth == 0:
             indent = "  "
             connector = ""
         else:
             indent = "    " * depth
             connector = con
-        lines.append(f"{indent}{connector}{_color_zone(zone, depth)} ({server})")
+        if glue_ip:
+            ip_str = f" {_DIM}{glue_ip}{_RESET}" if color else f" {glue_ip}"
+        else:
+            ip_str = ""
+        lines.append(f"{indent}{connector}{_color_zone(zone, depth)} ({server}{ip_str})")
 
     # Leaf: answer record(s) or error.
     # Show the labels not covered by any delegation zone (the "host part"

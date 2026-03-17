@@ -15,6 +15,9 @@ install:
 uninstall:
 	pipx uninstall dnscurse
 
+reinstall: clean uninstall
+	make install
+
 # Development targets
 
 build: $(VENV)
