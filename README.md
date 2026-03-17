@@ -265,7 +265,7 @@ for step in steps:
         print("Glue IPs:", get_referral_ns_ips(step.response))
 ```
 
-The full library API is documented in [`dnscurse(3)`](docs/dnscurse.3.md).
+The full library API is documented in [`dnscurse(3)`](docs/dnscurse.3.txt).
 
 ---
 
@@ -316,8 +316,8 @@ Dependencies: [dnspython](https://www.dnspython.org/) ≥ 2.6, Python ≥ 3.10.
 
 ## See also
 
-- [`dnscurse(1)`](docs/dnscurse.1.md) — CLI command reference
-- [`dnscurse(3)`](docs/dnscurse.3.md) — library API reference
+- [`dnscurse(1)`](docs/dnscurse.1.txt) — CLI command reference
+- [`dnscurse(3)`](docs/dnscurse.3.txt) — library API reference
 - `dig +trace example.com` — similar output but delegates recursion to the server
 - [RFC 1034](https://www.rfc-editor.org/rfc/rfc1034) — Domain Names: Concepts and Facilities
 - [RFC 1035](https://www.rfc-editor.org/rfc/rfc1035) — Domain Names: Implementation and Specification
