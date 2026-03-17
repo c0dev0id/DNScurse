@@ -1,0 +1,112 @@
+DNSCURSE(1)                      User Commands                     DNSCURSE(1)
+
+NAME
+     dnscurse - trace DNS iterative resolution step by step
+
+SYNOPSIS
+     dnscurse [-t type] [--timeout seconds] [-c] domain
+
+DESCRIPTION
+     dnscurse performs iterative DNS resolution from the root servers,
+     displaying each delegation step the way a full-service resolver would
+     walk them.  Unlike a stub resolver that sends a single recursive query,
+     dnscurse sends every query with the RD (Recursion Desired) bit cleared
+     and follows referrals itself, printing what each server returned.
+
+     This makes the delegation chain transparent: you can see which
+     nameserver is responsible for each zone, what glue records were
+     provided, and exactly where resolution succeeded or failed.
+
+     By default each step is shown as an indented block.  The domain name
+     in the header is coloured by delegation depth: each hop gets its own
+     colour (cycling through red, green, yellow, magenta, cyan, white), so
+     labels introduced at the same hop share one colour.  The same label
+     has the same colour in both output modes.  Colour is suppressed
+     automatically when stdout is not a terminal.
+
+OPTIONS
+     domain
+             The fully-qualified or relative domain name to resolve.  A
+             trailing dot is accepted but not required.
+
+     -t type, --type type
+             DNS record type to query.  Accepted values: A, AAAA, NS,
+             CNAME, SOA, MX, TXT, PTR.  Default: A.
+
+     --timeout seconds
+             Per-query UDP timeout in seconds (floating-point).
+             Default: 5.0.
+
+     -c, --compact
+             Compact delegation tree view.  Shows the full resolution
+             hierarchy at a glance: the query name is the root, each
+             referral becomes a child node showing the delegated zone and
+             the server that answered, and the final leaf is the answer
+             record (or error).  The final answer summary and step count
+             are omitted in compact mode.
+
+OUTPUT
+   Block format (default)
+     Each step is rendered as:
+
+         www.example.com
+           server  a.root-servers.net (198.41.0.4)
+           rcode   NOERROR
+           result  referral -> a.gtld-servers.net.
+           time    45.3ms
+
+     After all steps, the resolved records are shown as a dig-style answer
+     summary followed by a step count and total elapsed time.
+
+   Compact tree format (--compact)
+
+         example.com A
+           . (a.root-servers.net)
+             +-- com. (a.gtld-servers.net)
+                 +-- example.com. (a.iana-servers.net)
+                     +-- A 93.184.216.34
+
+EXAMPLES
+     Resolve the A record for example.com:
+
+         dnscurse example.com
+
+     Resolve the AAAA record for google.com:
+
+         dnscurse -t AAAA google.com
+
+     Show a compact trace of a deeper delegation chain:
+
+         dnscurse --compact www.github.com
+
+     Confirm that a domain does not exist:
+
+         dnscurse nope.invalid
+
+     Use a shorter timeout for unreachable servers:
+
+         dnscurse --timeout 2 slow.example.com
+
+EXIT STATUS
+     0       Resolution completed (answer, NXDOMAIN, or NODATA -- any
+             definitive result).
+
+     1       No resolution steps were produced (internal error or empty
+             resolver output).
+
+NOTES
+     Queries are sent over UDP with the RD bit cleared.  dnscurse does not
+     fall back to TCP and does not validate DNSSEC signatures.  It is
+     intended as an educational and debugging aid, not a production
+     resolver.
+
+     Root server addresses are compiled in from the IANA root hints file
+     and are updated with each release.
+
+SEE ALSO
+     dnscurse(3), dig(1), host(1), nslookup(1), resolv.conf(5)
+
+     RFC 1034 -- Domain Names -- Concepts and Facilities
+     RFC 1035 -- Domain Names -- Implementation and Specification
+
+dnscurse 0.2.0                  2026-03-17                       DNSCURSE(1)

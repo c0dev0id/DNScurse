@@ -1,0 +1,190 @@
+DNSCURSE(3)                    DNScurse Library                    DNSCURSE(3)
+
+NAME
+     dnscurse - iterative DNS resolution library
+
+SYNOPSIS
+     from dnscurse import resolve, RecursionStep
+
+     resolve(name, rdtype="A", timeout=5.0) -> list[RecursionStep]
+
+     send_query(name, rdtype, server_ip, timeout=5.0) -> dns.message.Message
+
+DESCRIPTION
+     The dnscurse package exposes a programmatic interface for iterative DNS
+     resolution.  It walks the delegation chain from the root servers,
+     following referrals and CNAMEs with the RD (Recursion Desired) bit
+     cleared, and returns a list of RecursionStep objects describing every
+     hop.
+
+     All public symbols are importable from the package root:
+
+         from dnscurse import resolve, RecursionStep
+
+   Functions
+
+     resolve(name, rdtype="A", timeout=5.0)
+             Iteratively resolve name starting from the root servers.
+             Returns a list of RecursionStep objects, one per query sent.
+
+             name    Domain name to resolve (str).  A trailing dot is
+                     accepted but not required.
+
+             rdtype  Record type as a string ("A", "AAAA", "MX", "NS",
+                     etc.) or an int from dns.rdatatype.  Default: "A".
+
+             timeout Per-query UDP timeout in seconds (float).
+                     Default: 5.0.
+
+     send_query(name, rdtype, server_ip, timeout=5.0)
+             Send a single iterative DNS query over UDP to server_ip and
+             return the raw dns.message.Message response.  The RD bit is
+             cleared per RFC 1034 Section 5.3.1.
+
+             name    Domain name to query (str).
+
+             rdtype  Record type as an int from dns.rdatatype.
+
+             server_ip
+                     IPv4 address of the server to query (str).
+
+             timeout UDP timeout in seconds (float).  Default: 5.0.
+
+   RecursionStep
+     A dataclass representing one hop in the resolution chain.
+
+     step_number (int)
+             Sequence number starting at 1.
+
+     description (str)
+             Human-readable label for the step (e.g. "Query root server
+             for example.com").
+
+     server_ip (str)
+             IP address of the server that was queried.
+
+     server_name (str)
+             Hostname of the server that was queried.
+
+     query_name (str)
+             The domain name sent in this query.
+
+     query_type (str)
+             Record type as a human-readable string (e.g. "A", "AAAA").
+
+     response (dns.message.Message | None)
+             The DNS response, or None if a network error occurred.
+
+     error (str | None)
+             Error message if the query failed, otherwise None.
+
+     rtt_ms (float | None)
+             Round-trip time in milliseconds, or None on error.
+
+     truncated (bool)
+             True if the response had the TC (Truncation) flag set.
+
+     Methods:
+
+     explain()
+             Return a multi-line, human-readable explanation of the step
+             including query details, response code, referral targets or
+             answer records, and any errors.
+
+   Helper functions
+     These inspect dns.message.Message objects returned by the resolver.
+
+     is_referral(msg)
+             Return True if msg is a referral (NS in authority, empty
+             answer section).
+
+     get_referral_ns_ips(msg)
+             Return a list of glue record IP addresses from the additional
+             section.
+
+     get_referral_ns_names(msg)
+             Return a list of NS target hostnames from the authority
+             section.
+
+     get_cname_target(msg, name)
+             If the answer contains a CNAME for name, return the canonical
+             target; otherwise return None.
+
+     get_delegated_zone(step)
+             Return the DNS zone covered at this RecursionStep, or None
+             on error.
+
+     format_rrset(rrset)
+             Format a dns.rrset.RRset as a list of dig-style strings
+             (NAME  TTL  TYPE  RDATA).
+
+   Constants
+
+     ROOT_SERVERS
+             List of 13 (name, ip) tuples for the IANA root servers.
+
+     DEFAULT_TIMEOUT
+             Per-query timeout in seconds (5.0).
+
+     MAX_STEPS
+             Maximum resolution steps before giving up (30).
+
+     MAX_CNAME_FOLLOWS
+             Maximum CNAME redirects before giving up (8).
+
+EXAMPLES
+     Resolve a domain and print each step:
+
+         from dnscurse import resolve
+
+         steps = resolve("example.com", "AAAA")
+         for step in steps:
+             print(step.explain())
+
+     Check the final answer:
+
+         from dnscurse import resolve
+
+         steps = resolve("example.com")
+         final = steps[-1]
+         if final.response and final.response.answer:
+             for rrset in final.response.answer:
+                 for rr in rrset:
+                     print(rr)
+
+     Use dnspython integer types (still supported):
+
+         import dns.rdatatype
+         from dnscurse import resolve
+
+         steps = resolve("example.com", dns.rdatatype.MX)
+
+     Inspect a referral:
+
+         from dnscurse import resolve, is_referral
+         from dnscurse import get_referral_ns_names, get_referral_ns_ips
+
+         steps = resolve("example.com")
+         for step in steps:
+             if step.response and is_referral(step.response):
+                 print("Referred to:", get_referral_ns_names(step.response))
+                 print("Glue IPs:", get_referral_ns_ips(step.response))
+
+ERRORS
+     dns.rdatatype.UnknownRdatatype
+             Raised by resolve() if rdtype is a string that does not name
+             a valid DNS record type.
+
+     OSError
+             Raised by send_query() on network failures (timeout,
+             unreachable, etc.).  The resolve() function catches these and
+             records them in the error field of the RecursionStep.
+
+SEE ALSO
+     dnscurse(1), dig(1)
+
+     RFC 1034 -- Domain Names -- Concepts and Facilities
+     RFC 1035 -- Domain Names -- Implementation and Specification
+     RFC 2308 -- Negative Caching of DNS Queries
+
+dnscurse 0.2.0                  2026-03-17                       DNSCURSE(3)

@@ -25,7 +25,6 @@ from dnscurse.models import (
     is_referral,
 )
 
-
 # -----------------------------------------------------------------------
 # Helpers — build dns.message.Message objects for tests
 # -----------------------------------------------------------------------

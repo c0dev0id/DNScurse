@@ -1,4 +1,4 @@
-.TH DNSCURSE 1 "2026-03-16" "dnscurse 0.2.0" "User Commands"
+.TH DNSCURSE 1 "2026-03-17" "dnscurse 0.2.0" "User Commands"
 .SH NAME
 dnscurse \- trace DNS iterative resolution step by step
 .SH SYNOPSIS
@@ -22,9 +22,10 @@ is responsible for each zone, what glue records were provided, and exactly
 where resolution succeeded or failed.
 .PP
 By default each step is shown as an indented block.
-The domain name in the header is coloured to highlight the zone that the
-queried server is authoritative for (yellow), with the remaining labels
-dimmed.
+The domain name in the header is coloured by delegation depth: each hop
+gets its own colour (cycling through red, green, yellow, magenta, cyan,
+white), so labels introduced at the same hop share one colour.
+The same label has the same colour in both output modes.
 Colour is suppressed automatically when stdout is not a terminal.
 .SH OPTIONS
 .TP
@@ -52,11 +53,11 @@ Default:
 .BR 5.0 .
 .TP
 .BR \-c ", " \-\-compact
-Print one line per step instead of the full block format:
-.IP
-.I server-ip
-.RI ( "query-name query-type" ", " result )
-.PP
+Compact delegation tree view.
+Shows the full resolution hierarchy at a glance: the query name is
+the root, each referral becomes a child node showing the delegated
+zone and the server that answered, and the final leaf is the answer
+record (or error).
 The final answer summary and step count are omitted in compact mode.
 .SH OUTPUT
 .SS Block format (default)
@@ -72,11 +73,13 @@ Each step is rendered as:
 .PP
 After all steps, the resolved records are shown as a dig-style answer
 summary followed by a step count and total elapsed time.
-.SS Compact format (\-\-compact)
+.SS Compact tree format (\-\-compact)
 .nf
-    198.41.0.4 (www.example.com A, referral \(-> a.gtld-servers.net.)
-    192.5.6.30 (www.example.com A, referral \(-> a.iana-servers.net.)
-    199.43.135.53 (www.example.com A, A 93.184.216.34)
+    example.com A
+      . (a.root-servers.net)
+        \(em\(em com. (a.gtld-servers.net)
+            \(em\(em example.com. (a.iana-servers.net)
+                \(em\(em A 93.184.216.34
 .fi
 .SH EXAMPLES
 Resolve the A record for

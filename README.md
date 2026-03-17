@@ -1,5 +1,7 @@
 # DNScurse
 
+[![Tests](https://github.com/c0dev0id/DNScurse/actions/workflows/test.yml/badge.svg)](https://github.com/c0dev0id/DNScurse/actions/workflows/test.yml)
+
 A traceroute for DNS. DNScurse performs iterative resolution from the root servers, showing every delegation step so you can see exactly how a domain name gets resolved.
 
 Unlike `dig +trace`, DNScurse walks the chain itself with `RD=0` (Recursion Desired off), so the output reflects the real path a resolver takes — including glue records, CNAME restarts, and SERVFAIL failovers.
@@ -227,6 +229,48 @@ gmail.com
 
 ---
 
+## Library API
+
+DNScurse can be used as a Python library. The resolver has no CLI dependencies — import it directly:
+
+```python
+from dnscurse import resolve
+
+steps = resolve("example.com", "A")
+for step in steps:
+    print(step.explain())
+```
+
+Check the final answer:
+
+```python
+from dnscurse import resolve
+
+steps = resolve("example.com")
+final = steps[-1]
+if final.response and final.response.answer:
+    for rrset in final.response.answer:
+        for rr in rrset:
+            print(rr)
+```
+
+Inspect referrals along the chain:
+
+```python
+from dnscurse import resolve, is_referral
+from dnscurse import get_referral_ns_names, get_referral_ns_ips
+
+steps = resolve("example.com")
+for step in steps:
+    if step.response and is_referral(step.response):
+        print("Referred to:", get_referral_ns_names(step.response))
+        print("Glue IPs:", get_referral_ns_ips(step.response))
+```
+
+The full library API is documented in [`dnscurse(3)`](docs/dnscurse.3.txt).
+
+---
+
 ## How it works
 
 DNS resolution is iterative: no single server knows the address for every domain. Instead, the resolution starts at a root server and follows a chain of referrals down the hierarchy until an authoritative server provides the final answer.
@@ -262,7 +306,7 @@ make build
 make test
 
 # Run integration tests against live root servers
-make test ARGS="-m network"
+make test-net
 
 # View the man page
 make man
@@ -274,7 +318,8 @@ Dependencies: [dnspython](https://www.dnspython.org/) ≥ 2.6, Python ≥ 3.10.
 
 ## See also
 
+- [`dnscurse(1)`](docs/dnscurse.1.txt) — CLI command reference
+- [`dnscurse(3)`](docs/dnscurse.3.txt) — library API reference
 - `dig +trace example.com` — similar output but delegates recursion to the server
-- `man dnscurse` — full option reference
 - [RFC 1034](https://www.rfc-editor.org/rfc/rfc1034) — Domain Names: Concepts and Facilities
 - [RFC 1035](https://www.rfc-editor.org/rfc/rfc1035) — Domain Names: Implementation and Specification
