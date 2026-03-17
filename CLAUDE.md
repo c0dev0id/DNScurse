@@ -22,7 +22,7 @@ DNScurse is a Python CLI DNS recursor debug tool. It performs iterative DNS reso
 - **Iterative resolution logic** (`resolver.py`): walks the delegation chain from root servers, follows referrals and CNAMEs
 - **Referral/CNAME detection** (`models.py`): helper functions that inspect `dns.message.Message` objects
 - **Step-by-step explanation** (`models.py`): `RecursionStep` with `explain()` for human-readable output
-- **CLI** (`cli.py`): entry point
+- **CLI** (`_cli.py`): reference implementation / entry point (internal, not part of the public API)
 
 ### Key design decisions
 - Queries are sent with `RD=0` (Recursion Desired off) — we do the iteration ourselves
@@ -40,9 +40,9 @@ DNScurse/
 ├── .gitignore
 ├── .github/workflows/test.yml
 ├── dnscurse/
-│   ├── __init__.py
-│   ├── __main__.py       # python -m dnscurse
-│   ├── cli.py             # CLI entry point and argument parsing
+│   ├── __init__.py        # Public library API (resolve, RecursionStep, helpers)
+│   ├── __main__.py        # python -m dnscurse
+│   ├── _cli.py            # Internal — CLI reference implementation
 │   ├── models.py          # RecursionStep + helper functions for dns.message.Message
 │   └── resolver.py        # Iterative resolution engine
 ├── man/
@@ -53,8 +53,9 @@ DNScurse/
 └── tests/
     ├── __init__.py
     ├── conftest.py
-    ├── test_models.py     # Referral/CNAME detection, RecursionStep explanations
-    └── test_resolver.py   # Simulated resolution chains, root server config
+    ├── test_models.py     # Library: referral/CNAME detection, RecursionStep explanations
+    ├── test_resolver.py   # Library: simulated resolution chains, root server config
+    └── test_cli.py        # CLI: argument parsing, output formatting, exit codes
 ```
 
 ## Commands
@@ -67,8 +68,14 @@ pip install -e ".[dev]"
 python -m dnscurse example.com
 python -m dnscurse -t AAAA example.com
 
-# Run tests
+# Run all tests (except network)
 python -m pytest tests/ -m "not network"
+
+# Run library tests only
+python -m pytest tests/ -m "not network and not cli"
+
+# Run CLI tests only
+python -m pytest tests/ -m "cli"
 
 # Run integration tests (requires network)
 python -m pytest tests/ -m network
@@ -79,7 +86,8 @@ python -m pytest tests/ -m network
 - PEP 8
 - Type hints on all function signatures
 - Use `dns.rdatatype`, `dns.rcode`, `dns.message.Message` directly — no wrapper enums
-- Keep modules focused: resolution logic in `resolver.py`, helpers and `RecursionStep` in `models.py`
+- Keep modules focused: resolution logic in `resolver.py`, helpers and `RecursionStep` in `models.py`, CLI rendering in `_cli.py`
+- `_cli.py` is internal — the public API is `__init__.py` (which exports only from `models.py` and `resolver.py`)
 
 ## Testing
 

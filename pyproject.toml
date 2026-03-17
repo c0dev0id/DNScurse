@@ -18,7 +18,7 @@ dev = [
 ]
 
 [project.scripts]
-dnscurse = "dnscurse.cli:main"
+dnscurse = "dnscurse._cli:main"
 
 [tool.setuptools.packages.find]
 include = ["dnscurse*"]
@@ -30,3 +30,7 @@ include = ["dnscurse*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-v -s"
+markers = [
+    "network: marks tests that require network access",
+    "cli: marks tests that exercise the CLI entry point",
+]

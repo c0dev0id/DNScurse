@@ -24,28 +24,36 @@ There are no background threads, no persistent processes, no sockets held open b
 
 ```
 dnscurse/
+├── __init__.py       Public library API (resolve, RecursionStep, helpers)
 ├── __main__.py       Entry point for python -m dnscurse
-├── cli.py            Argument parsing + all rendering (2 output modes)
+├── _cli.py           Internal — CLI reference implementation (not public API)
 ├── resolver.py       Iterative resolution algorithm (RFC 1034 §5.3.3)
 └── models.py         RecursionStep dataclass + dns.message.Message helpers
 ```
 
+### Library vs CLI
+
+The package has two identities:
+
+- **Library** — `from dnscurse import resolve, RecursionStep`. The public API is defined in `__init__.py` and consists of `resolver.py` + `models.py`. No CLI code is imported.
+- **CLI tool** — `pipx install . → dnscurse example.com`. The `_cli.py` module is a reference implementation that consumes the library. The leading underscore signals it is internal and not part of the public API.
+
 ### Dependency graph
 
 ```
-cli.py
+_cli.py  (internal — CLI reference implementation)
   ├── models.py   (RecursionStep, get_delegated_zone, format_rrset, …)
   └── resolver.py (resolve)
 
-resolver.py
+resolver.py  (public library)
   ├── models.py   (RecursionStep, is_referral, get_cname_target, …)
   └── dnspython   (dns.query, dns.message, dns.flags, dns.exception)
 
-models.py
+models.py  (public library)
   └── dnspython   (dns.message.Message, dns.name, dns.rdatatype, …)
 ```
 
-`cli.py` is the only module that knows about terminal output. `resolver.py` knows nothing about display. `models.py` knows nothing about either. This layering is intentional and enforced by the dependency direction — inverting it (e.g., putting rendering logic in `resolver.py`) is a structural violation.
+`_cli.py` is the only module that knows about terminal output. `resolver.py` knows nothing about display. `models.py` knows nothing about either. This layering is intentional and enforced by the dependency direction — inverting it (e.g., putting rendering logic in `resolver.py`) is a structural violation. The underscore prefix on `_cli.py` makes this boundary explicit.
 
 ---
 
