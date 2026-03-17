@@ -210,7 +210,7 @@ www.example.com A          ← query header, colorized by hop depth
   time    107.3ms
 ```
 
-### Tree mode (`-c`)
+### Compact Tree mode (`-c`)
 
 The full delegation chain rendered as a tree with the query name as the root:
 
