@@ -3,7 +3,19 @@ PYTHON := $(VENV)/bin/python
 PIP    := $(VENV)/bin/pip3
 PYTEST := $(VENV)/bin/pytest
 
-.PHONY: build run test test-net lint install uninstall man clean
+.PHONY: all build run test test-net lint install uninstall man clean
+
+# Default: install release version into venv (no dev/test dependencies)
+all: $(VENV)
+	$(PIP) install -e .
+
+install:
+	pipx install .
+
+uninstall:
+	pipx uninstall dnscurse
+
+# Development targets
 
 build: $(VENV)
 	$(PIP) install -e ".[dev]"
@@ -19,12 +31,6 @@ test-net: build
 
 lint: build
 	$(VENV)/bin/ruff check dnscurse/ tests/
-
-install:
-	pipx install .
-
-uninstall:
-	pipx uninstall dnscurse
 
 man: docs/dnscurse.1.txt docs/dnscurse.3.txt
 	mandoc -a man/dnscurse.1
