@@ -215,7 +215,7 @@ def _format_tree(steps: list[RecursionStep], color: bool = True) -> str:
             indent = "    " * depth
             connector = con
         if glue_ip:
-            ip_str = f" {_DIM}{glue_ip}{_RESET}" if color else f" {glue_ip}"
+            ip_str = f" {_DIM}{glue_ip} glue{_RESET}" if color else f" {glue_ip} glue"
         else:
             ip_str = ""
         lines.append(f"{indent}{connector}{_color_zone(zone, depth)} ({server}{ip_str})")
