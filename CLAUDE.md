@@ -68,17 +68,15 @@ pip install -e ".[dev]"
 python -m dnscurse example.com
 python -m dnscurse -t AAAA example.com
 
-# Run all tests (except network)
+# Run tests (no network)
 python -m pytest tests/ -m "not network"
-
-# Run library tests only
-python -m pytest tests/ -m "not network and not cli"
-
-# Run CLI tests only
-python -m pytest tests/ -m "cli"
 
 # Run integration tests (requires network)
 python -m pytest tests/ -m network
+
+# Run only library or CLI tests via markers
+python -m pytest tests/ -m "not network and not cli"
+python -m pytest tests/ -m "cli"
 ```
 
 ## Code Style
