@@ -35,8 +35,8 @@
   <rect x="390" y="164" width="150" height="36" rx="6" ry="6" fill="#238636" fill-opacity="0.15" stroke="#238636" stroke-opacity="0.4"/>
   <text x="465" y="187" text-anchor="middle" fill="#3fb950" class="mono">dns.query.udp()</text>
 
-  <rect x="150" y="220" width="120" height="32" rx="6" ry="6" fill="#1f6feb" fill-opacity="0.1" stroke="#1f6feb" stroke-opacity="0.25"/>
-  <text x="210" y="241" text-anchor="middle" fill="#58a6ff" class="mono">models.py</text>
+  <rect x="155" y="220" width="120" height="32" rx="6" ry="6" fill="#1f6feb" fill-opacity="0.1" stroke="#1f6feb" stroke-opacity="0.25"/>
+  <text x="215" y="241" text-anchor="middle" fill="#58a6ff" class="mono">models.py</text>
 
   <rect x="390" y="220" width="120" height="32" rx="6" ry="6" fill="#238636" fill-opacity="0.1" stroke="#238636" stroke-opacity="0.25"/>
   <text x="450" y="241" text-anchor="middle" fill="#3fb950" class="mono">dnspython</text>
@@ -44,7 +44,9 @@
   <!-- Internal arrows -->
   <path d="M190 182 L228 182" class="arrow" stroke="#8b949e"/>
   <path d="M350 182 L388 182" class="arrow" stroke="#8b949e"/>
-  <path d="M290 200 L290 218" class="arrow" stroke="#8b949e" stroke-dasharray="4 3"/>
+  <path d="M160 200 L195 218" class="arrow" stroke="#8b949e" stroke-dasharray="4 3"/>
+  <path d="M270 200 L235 218" class="arrow" stroke="#8b949e" stroke-dasharray="4 3"/>
+  <path d="M465 200 L450 218" class="arrow" stroke="#8b949e" stroke-dasharray="4 3"/>
 
   <!-- ANSI output label -->
   <text x="100" y="275" fill="#8b949e" class="dim">ANSI terminal output</text>
