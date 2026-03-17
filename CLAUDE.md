@@ -38,7 +38,11 @@ DNScurse/
 ├── Makefile
 ├── pyproject.toml
 ├── .gitignore
-├── .github/workflows/test.yml
+├── .github/workflows/
+│   ├── lint.yml
+│   ├── build.yml
+│   ├── unit-tests.yml
+│   └── integration-tests.yml
 ├── dnscurse/
 │   ├── __init__.py        # Public library API (resolve, RecursionStep, helpers)
 │   ├── __main__.py        # python -m dnscurse
