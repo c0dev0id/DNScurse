@@ -51,7 +51,7 @@ models.py
 
 ## 4. The Resolution Algorithm
 
-The core algorithm in `resolver.py` directly implements **RFC 1034 Section 5.3.3** ("Standard name resolution algorithm"). Every branch in the main loop maps to a numbered step in that RFC section.
+The core algorithm in `resolver.py` directly implements **[RFC 1034 Section 5.3.3](https://www.rfc-editor.org/rfc/rfc1034#section-5.3.3)** ("Standard name resolution algorithm"). Every branch in the main loop maps to a numbered step in that RFC section.
 
 ### Control flow
 
@@ -103,9 +103,9 @@ resolve(name, rdtype)
 
 **RD=0 (Recursion Desired off).** Every query clears the RD flag before sending. This forces each nameserver to either answer authoritatively or return a referral — it cannot silently recurse on our behalf. Without this, the whole chain collapses to one step and we learn nothing.
 
-**The same QNAME is sent to every server.** Root servers, TLD servers, and authoritative servers all receive `dalek.home.codevoid.de A`. Each server responds based on its zone of authority. This is correct per RFC 1034 §3.3 — the full name is required at every hop so the server can identify which zone covers it.
+**The same QNAME is sent to every server.** Root servers, TLD servers, and authoritative servers all receive `dalek.home.codevoid.de A`. Each server responds based on its zone of authority. This is correct per [RFC 1034 §3.3](https://www.rfc-editor.org/rfc/rfc1034#section-3.3) — the full name is required at every hop so the server can identify which zone covers it.
 
-**CNAME restarts from root.** When a CNAME is encountered, `current_name` is updated to the target and `server` is reset to the root. This is mandated by RFC 1034 §3.6.2: "the resolver must restart the query at the canonical name." Continuing from the current nameserver would be incorrect because the CNAME target may be in a completely different zone hierarchy.
+**CNAME restarts from root.** When a CNAME is encountered, `current_name` is updated to the target and `server` is reset to the root. This is mandated by [RFC 1034 §3.6.2](https://www.rfc-editor.org/rfc/rfc1034#section-3.6.2): "the resolver must restart the query at the canonical name." Continuing from the current nameserver would be incorrect because the CNAME target may be in a completely different zone hierarchy.
 
 **Recursive sub-resolution for glueless referrals.** When a referral has NS names but no glue A records, the NS name itself must be resolved before the main resolution can proceed. This is handled by a recursive call to `resolve()`. The sub-resolution result is thrown away after extracting the IP — only the main resolution's steps are returned to the caller. This keeps the output clean while correctly handling cross-zone NS names.
 
@@ -320,7 +320,7 @@ These are deliberate scope decisions for the current version, not bugs:
 
 **No DNSSEC validation.** DNSSEC signatures are not checked. DNScurse is a diagnostic tool for delegation chain visibility, not a validating resolver.
 
-**No DNAME support.** DNAME records (RFC 2672, subtree aliasing) are not handled. A DNAME will cause resolution to stop at the DNAME response without following it.
+**No DNAME support.** DNAME records ([RFC 2672](https://www.rfc-editor.org/rfc/rfc2672), subtree aliasing) are not handled. A DNAME will cause resolution to stop at the DNAME response without following it.
 
 **Hardcoded root hints.** Root server IPs are hardcoded at `resolver.py:ROOT_SERVERS`. IANA root server addresses change rarely but are not fetched dynamically. The list matches the IANA root hints file as of 2026.
 
