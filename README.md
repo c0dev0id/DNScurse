@@ -227,6 +227,48 @@ gmail.com
 
 ---
 
+## Library API
+
+DNScurse can be used as a Python library. The resolver has no CLI dependencies — import it directly:
+
+```python
+from dnscurse import resolve
+
+steps = resolve("example.com", "A")
+for step in steps:
+    print(step.explain())
+```
+
+Check the final answer:
+
+```python
+from dnscurse import resolve
+
+steps = resolve("example.com")
+final = steps[-1]
+if final.response and final.response.answer:
+    for rrset in final.response.answer:
+        for rr in rrset:
+            print(rr)
+```
+
+Inspect referrals along the chain:
+
+```python
+from dnscurse import resolve, is_referral
+from dnscurse import get_referral_ns_names, get_referral_ns_ips
+
+steps = resolve("example.com")
+for step in steps:
+    if step.response and is_referral(step.response):
+        print("Referred to:", get_referral_ns_names(step.response))
+        print("Glue IPs:", get_referral_ns_ips(step.response))
+```
+
+The full library API is documented in [`dnscurse(3)`](docs/dnscurse.3.md).
+
+---
+
 ## How it works
 
 DNS resolution is iterative: no single server knows the address for every domain. Instead, the resolution starts at a root server and follows a chain of referrals down the hierarchy until an authoritative server provides the final answer.
@@ -274,7 +316,8 @@ Dependencies: [dnspython](https://www.dnspython.org/) ≥ 2.6, Python ≥ 3.10.
 
 ## See also
 
+- [`dnscurse(1)`](docs/dnscurse.1.md) — CLI command reference
+- [`dnscurse(3)`](docs/dnscurse.3.md) — library API reference
 - `dig +trace example.com` — similar output but delegates recursion to the server
-- `man dnscurse` — full option reference
 - [RFC 1034](https://www.rfc-editor.org/rfc/rfc1034) — Domain Names: Concepts and Facilities
 - [RFC 1035](https://www.rfc-editor.org/rfc/rfc1035) — Domain Names: Implementation and Specification
