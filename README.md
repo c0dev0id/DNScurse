@@ -276,5 +276,5 @@ Dependencies: [dnspython](https://www.dnspython.org/) ≥ 2.6, Python ≥ 3.10.
 
 - `dig +trace example.com` — similar output but delegates recursion to the server
 - `man dnscurse` — full option reference
-- RFC 1034 — Domain Names: Concepts and Facilities
-- RFC 1035 — Domain Names: Implementation and Specification
+- [RFC 1034](https://www.rfc-editor.org/rfc/rfc1034) — Domain Names: Concepts and Facilities
+- [RFC 1035](https://www.rfc-editor.org/rfc/rfc1035) — Domain Names: Implementation and Specification
