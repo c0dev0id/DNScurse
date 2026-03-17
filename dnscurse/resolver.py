@@ -82,7 +82,7 @@ def send_query(name: str, rdtype: int, server_ip: str,
     return dns.query.udp(query, server_ip, timeout=timeout)
 
 
-def resolve(name: str, rdtype: int = dns.rdatatype.A,
+def resolve(name: str, rdtype: int | str = dns.rdatatype.A,
             timeout: float = DEFAULT_TIMEOUT) -> list[RecursionStep]:
     """Iteratively resolve a domain name, returning every step.
 
@@ -93,7 +93,13 @@ def resolve(name: str, rdtype: int = dns.rdatatype.A,
 
     Each step is recorded as a RecursionStep with a human-readable
     explanation of what happened and why.
+
+    *rdtype* can be an ``int`` (e.g. ``dns.rdatatype.A``) or a
+    ``str`` (e.g. ``"A"``, ``"AAAA"``).
     """
+    if isinstance(rdtype, str):
+        rdtype = dns.rdatatype.from_text(rdtype)
+
     steps: list[RecursionStep] = []
     step_num = 0
     cname_follows = 0

@@ -558,6 +558,57 @@ class TestRootServers:
 
 
 # -----------------------------------------------------------------------
+# Public API surface
+# -----------------------------------------------------------------------
+
+class TestPublicAPI:
+    """Tests for the library-facing public API (top-level imports, string
+    record types) so other projects can use DNScurse as a dependency."""
+
+    def test_resolve_accepts_string_rdtype(self):
+        """resolve() accepts a string like 'A' instead of dns.rdatatype.A."""
+        responses = {
+            ("example.com", dns.rdatatype.A, ROOT_SERVERS[0][1]):
+                _make_referral("com.", "a.gtld-servers.net.", "192.5.6.30"),
+            ("example.com", dns.rdatatype.A, "192.5.6.30"):
+                _make_answer("example.com.", "93.184.216.34"),
+        }
+
+        def fake_send(name, rdtype, server_ip, timeout=5.0):
+            return responses[(name, rdtype, server_ip)]
+
+        with patch("dnscurse.resolver.send_query", side_effect=fake_send):
+            steps = resolve("example.com", "A")  # string, not int
+
+        assert len(steps) == 2
+        assert steps[-1].response.answer
+
+    def test_resolve_accepts_string_rdtype_aaaa(self):
+        """String record type 'AAAA' also works."""
+        def fake_send(name, rdtype, server_ip, timeout=5.0):
+            assert rdtype == dns.rdatatype.AAAA
+            return _make_answer("example.com.", "2606:2800:21f:cb07:6820:80da:af6b:8b2c")
+
+        with patch("dnscurse.resolver.send_query", side_effect=fake_send):
+            steps = resolve("example.com", "AAAA")
+
+        assert len(steps) == 1
+
+    def test_top_level_imports(self):
+        """Core API is importable from the package root."""
+        from dnscurse import resolve, RecursionStep, send_query
+        from dnscurse import ROOT_SERVERS, DEFAULT_TIMEOUT
+        from dnscurse import is_referral, get_cname_target
+
+        assert callable(resolve)
+        assert callable(send_query)
+        assert callable(is_referral)
+        assert callable(get_cname_target)
+        assert len(ROOT_SERVERS) == 13
+        assert DEFAULT_TIMEOUT > 0
+
+
+# -----------------------------------------------------------------------
 # Integration tests (require network — skipped in CI by default)
 # -----------------------------------------------------------------------
 
