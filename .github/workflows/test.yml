@@ -34,16 +34,8 @@ jobs:
         run: python -m build
 
       - name: Run unit tests
-        run: |
-          echo "╔══════════════════════════════════════════════════╗"
-          echo "║  DNScurse Test Suite                             ║"
-          echo "║  Tests verify DNS wire format, packet parsing,   ║"
-          echo "║  and iterative resolution logic.                 ║"
-          echo "║  Output explains each recursion step.            ║"
-          echo "╚══════════════════════════════════════════════════╝"
-          python -m pytest tests/ -m "not network" -v -s 2>&1
+        run: python -m pytest tests/ -m "not network" -v -s
 
       - name: Run integration tests (live DNS)
-        run: |
-          echo "Running live DNS resolution tests..."
-          python -m pytest tests/ -m "network" -v -s --timeout=30 2>&1 || true
+        continue-on-error: true
+        run: python -m pytest tests/ -m "network" -v -s --timeout=30
