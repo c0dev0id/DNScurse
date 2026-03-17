@@ -47,22 +47,35 @@ def get_referral_ns_ips(msg: dns.message.Message) -> list[str]:
     dependency. When the NS name is in a different zone, glue is
     optional and may be absent — see RFC 7719 Section 6.
     """
-    # Collect the NS target names from authority section.
-    ns_names: set[dns.name.Name] = set()
+    return [ip for _, ip in get_referral_ns_servers(msg)]
+
+
+def get_referral_ns_servers(msg: dns.message.Message) -> list[tuple[str, str]]:
+    """Return (name, ip) pairs for NS referrals, preserving the NS→glue association.
+
+    Unlike calling get_referral_ns_names and get_referral_ns_ips separately and
+    zipping by index, this function maintains the correct mapping by iterating
+    NS records from the authority section and looking up each target's glue IPs
+    directly from a map built from the additional section.
+
+    This matters when the additional section lists glue in a different order
+    than the NS records in the authority section — which is valid per the DNS
+    wire format spec (RFC 1035 Section 4.1.3 imposes no ordering requirement
+    on resource records within a section).
+    """
+    # Build glue map: NS target name -> IPs, from additional section.
+    glue: dict[dns.name.Name, list[str]] = {}
+    for rrset in msg.additional:
+        if rrset.rdtype in (dns.rdatatype.A, dns.rdatatype.AAAA):
+            glue.setdefault(rrset.name, []).extend(rr.address for rr in rrset)
+
+    servers: list[tuple[str, str]] = []
     for rrset in msg.authority:
         if rrset.rdtype == dns.rdatatype.NS:
             for rr in rrset:
-                ns_names.add(rr.target)
-
-    # Match A/AAAA records in additional whose owner name is one of
-    # the NS targets. These are the glue records.
-    ips: list[str] = []
-    for rrset in msg.additional:
-        if rrset.rdtype in (dns.rdatatype.A, dns.rdatatype.AAAA):
-            if rrset.name in ns_names:
-                for rr in rrset:
-                    ips.append(rr.address)
-    return ips
+                for ip in glue.get(rr.target, []):
+                    servers.append((str(rr.target), ip))
+    return servers
 
 
 def get_referral_ns_names(msg: dns.message.Message) -> list[str]:

@@ -301,6 +301,50 @@ class TestSiblingFailover:
     than giving up immediately.
     """
 
+    def test_glue_order_independent_of_ns_order(self):
+        """EXPLANATION: The DNS wire format does not require the additional
+        section (glue) to be in the same order as the authority section (NS
+        records).  A referral with two NS names whose glue IPs appear in
+        reverse order must still pair each NS name with its correct IP.
+
+        This tests the fix for the index-based pairing bug: previously the
+        resolver called get_referral_ns_names (iterates authority) and
+        get_referral_ns_ips (iterates additional) independently and zipped
+        them by position, which gives wrong pairings when the two sections
+        are in different order.
+
+        Scenario: authority lists ns1 then ns2; additional lists ns2's glue
+        first, then ns1's glue. ns1's IP (10.0.0.2) should be queried for
+        ns1, not ns2's IP (10.0.0.1).
+        """
+        def fake_send(name, rdtype, server_ip, timeout=5.0):
+            if server_ip == ROOT_SERVERS[0][1]:
+                # NS records: ns1.com. then ns2.com.
+                # Glue in REVERSE order: ns2's IP first, ns1's IP second.
+                return _msg(
+                    authority=[
+                        ("com.", dns.rdatatype.NS, 172800, "ns1.com."),
+                        ("com.", dns.rdatatype.NS, 172800, "ns2.com."),
+                    ],
+                    additional=[
+                        ("ns2.com.", dns.rdatatype.A, 172800, "10.0.0.1"),
+                        ("ns1.com.", dns.rdatatype.A, 172800, "10.0.0.2"),
+                    ],
+                )
+            if server_ip == "10.0.0.2":  # ns1's actual IP
+                return _make_answer("example.com.", "1.2.3.4")
+            raise RuntimeError(f"Unexpected query to {server_ip} — wrong NS/glue pairing")
+
+        with patch("dnscurse.resolver.send_query", side_effect=fake_send):
+            steps = resolve("example.com", dns.rdatatype.A)
+
+        assert len(steps) == 2
+        assert steps[1].server_name == "ns1.com."
+        assert steps[1].server_ip == "10.0.0.2"
+        assert steps[1].response.answer
+        print("\n  Glue order independence: ns1.com. correctly mapped to 10.0.0.2"
+              " despite ns2 appearing first in the additional section")
+
     def test_servfail_tries_sibling_ns(self):
         """EXPLANATION: When a referred NS returns SERVFAIL, the resolver
         tries the next NS from the same referral. This is critical for

@@ -16,6 +16,7 @@ from .models import (
     get_delegated_zone,
     get_referral_ns_ips,
     get_referral_ns_names,
+    get_referral_ns_servers,
     is_referral,
 )
 from .resolver import (
@@ -41,6 +42,7 @@ __all__ = [
     "is_referral",
     "get_referral_ns_ips",
     "get_referral_ns_names",
+    "get_referral_ns_servers",
     "get_cname_target",
     "get_delegated_zone",
     "format_rrset",

@@ -22,8 +22,8 @@ import dns.rdatatype
 from .models import (
     RecursionStep,
     get_cname_target,
-    get_referral_ns_ips,
     get_referral_ns_names,
+    get_referral_ns_servers,
     is_referral,
 )
 
@@ -233,8 +233,8 @@ def resolve(name: str, rdtype: int | str = dns.rdatatype.A,
         # The additional section may contain "glue" A/AAAA records with
         # the IP addresses of those nameservers.
         if is_referral(response):
-            glue_ips = get_referral_ns_ips(response)
-            if glue_ips:
+            ns_servers = get_referral_ns_servers(response)
+            if ns_servers:
                 # Glue records present: we have the NS's IP address and
                 # can query it directly. Glue is provided when the NS
                 # name is within the delegated zone (e.g., ns1.example.com
@@ -242,18 +242,13 @@ def resolve(name: str, rdtype: int | str = dns.rdatatype.A,
                 # and-egg problem. RFC 1034 Section 4.2.1 defines glue
                 # as "address records...necessary to allow DNS to
                 # function." RFC 7719 Section 6 formalizes the definition.
-                ns_names = get_referral_ns_names(response)
-
+                #
                 # RFC 1034 Section 5.3.3: "a new server is selected"
                 # upon failure. Build a list of sibling NS servers from
                 # this referral so we can fail over if the first returns
-                # SERVFAIL or REFUSED. We pair each glue IP with its
-                # corresponding NS name (falling back to the IP itself
-                # if we have more IPs than names).
-                sibling_servers = []
-                for i, ip in enumerate(glue_ips):
-                    sname = ns_names[i] if i < len(ns_names) else ip
-                    sibling_servers.append((sname, ip))
+                # SERVFAIL or REFUSED. get_referral_ns_servers preserves
+                # the correct NS-name→IP association from the response.
+                sibling_servers = ns_servers
 
                 # Use the first candidate; the rest remain as fallbacks.
                 server_name, server_ip = sibling_servers.pop(0)
