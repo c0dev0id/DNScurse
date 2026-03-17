@@ -8,7 +8,7 @@
 
 DNScurse is a DNS iterative resolver that makes every resolution step observable. Unlike `dig +trace`, which produces raw packet dumps, DNScurse explains each step in human terms and renders the delegation chain as a colored hierarchy.
 
-The tool has a single responsibility: perform iterative DNS resolution from root servers and surface each step with enough context for a human to understand what happened and why.
+DNScurse has two identities: a **library** (`from dnscurse import resolve`) and a **CLI tool** (`dnscurse example.com`). Both share a single responsibility: perform iterative DNS resolution from root servers and surface each step with enough context for a human to understand what happened and why. The CLI is a reference implementation that consumes the library.
 
 ---
 
@@ -142,7 +142,7 @@ class RecursionStep:
 
 `RecursionStep` is a **value object**: immutable after construction except for the optional fields (`response`, `error`, `rtt_ms`, `truncated`) which are filled in after the network call completes. It is the only custom type the application defines — everything else uses dnspython's types directly.
 
-**Why not a class hierarchy?** A hierarchy (`ReferralStep`, `AnswerStep`, `ErrorStep`) would scatter rendering logic across subclasses and make the response type discriminated at construction time, before the response is even received. Instead, response *interpretation* is deferred to helper functions in `models.py` (`is_referral`, `get_cname_target`) and rendering code in `cli.py`. This keeps `RecursionStep` as a plain record.
+**Why not a class hierarchy?** A hierarchy (`ReferralStep`, `AnswerStep`, `ErrorStep`) would scatter rendering logic across subclasses and make the response type discriminated at construction time, before the response is even received. Instead, response *interpretation* is deferred to helper functions in `models.py` (`is_referral`, `get_cname_target`) and rendering code in `_cli.py`. This keeps `RecursionStep` as a plain record.
 
 **`dns.message.Message` is used directly.** There is no wrapper type around the DNS packet. dnspython's `Message` class already provides correct parsing of all record types, wire-format encoding, and case-insensitive name comparison. Wrapping it would add indirection without adding correctness. The tradeoff is that callers must know the dnspython API, which is a well-documented, stable library.
 
@@ -181,7 +181,7 @@ Everything else — the iteration logic, referral detection, CNAME handling, out
 
 ## 7. The CLI and Rendering Layer
 
-`cli.py` contains two output modes selected by the `-c` / `--compact` flag:
+`_cli.py` contains two output modes selected by the `-c` / `--compact` flag:
 
 ### Block mode (default)
 
@@ -303,6 +303,10 @@ A small set of tests resolve real domains (`example.com`, a non-existent domain)
 - Referral/CNAME detection in `models.py` helper functions
 - `get_delegated_zone()` for referral, answer, NXDOMAIN, and error cases
 
+### CLI tests (`@pytest.mark.cli`)
+
+`test_cli.py` exercises the CLI entry point by calling `_cli.main(argv=[…])` with `resolve` mocked at the import boundary. These tests cover argument parsing, output formatting (block and compact modes), exit codes, and error handling. They are tagged with the `cli` marker and can be run or excluded independently via `pytest -m cli` / `pytest -m "not cli"`.
+
 ---
 
 ## 10. Safety Limits
@@ -340,7 +344,7 @@ These are deliberate scope decisions for the current version, not bugs:
 
 The architecture supports the following extensions without restructuring:
 
-**Adding a new output mode** — add a rendering function in `cli.py` following the `_format_tree` / `_format_step_block` pattern, and add a flag in `main()`. The `steps: list[RecursionStep]` list contains all the data needed for any rendering.
+**Adding a new output mode** — add a rendering function in `_cli.py` following the `_format_tree` / `_format_step_block` pattern, and add a flag in `main()`. The `steps: list[RecursionStep]` list contains all the data needed for any rendering.
 
 **Caching** — add a cache dict keyed on `(name, rdtype)` at the top of `resolve()`. The `send_query` seam makes it easy to short-circuit before sending a query.
 
