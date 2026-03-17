@@ -6,29 +6,30 @@ Unlike `dig +trace`, DNScurse walks the chain itself with `RD=0` (Recursion Desi
 
 ![demo](docs/demo.gif)
 
-The domain header is coloured at each step: the label currently being delegated is **yellow**, already-resolved labels are normal, and the subdomain prefix not yet looked up is dim.
+Each delegation hop gets its own color. Labels introduced at the same hop share a color, so the hierarchy is immediately visible — the color in the domain header matches the color of the corresponding tree node in compact mode.
 
 ---
 
 ## Installation
 
-```sh
-pip install dnscurse
-```
-
-Or with pipx for an isolated install:
+DNScurse is not published to PyPI. Install from source:
 
 ```sh
-pipx install dnscurse
+git clone https://github.com/c0dev0id/DNScurse
+cd DNScurse
+python3 -m venv .venv
+.venv/bin/pip install -e ".[dev]"
 ```
 
-Or from source:
+Or with pipx for an isolated install (no venv management needed):
 
 ```sh
-git clone https://github.com/example/dnscurse
-cd dnscurse
-make install   # uses pipx
+git clone https://github.com/c0dev0id/DNScurse
+cd DNScurse
+pipx install .
 ```
+
+Requires Python ≥ 3.10 and [dnspython](https://www.dnspython.org/) ≥ 2.6 (installed automatically).
 
 ---
 
@@ -42,7 +43,7 @@ dnscurse [-t TYPE] [--timeout SECONDS] [-c] domain
 |---|---|---|
 | `-t`, `--type` | `A` | Record type: `A`, `AAAA`, `NS`, `CNAME`, `SOA`, `MX`, `TXT`, `PTR` |
 | `--timeout` | `5.0` | Per-query UDP timeout in seconds |
-| `-c`, `--compact` | off | One line per step (see below) |
+| `-c`, `--compact` | off | Compact delegation tree view (see below) |
 
 ---
 
@@ -179,14 +180,16 @@ nope.invalid
 
 ### Compact mode
 
-One line per step — useful for scripting or quick checks:
+Delegation tree — shows the full resolution hierarchy at a glance:
 
 ```
 $ dnscurse --compact example.com
 
-198.41.0.4 (example.com A, referral → a.gtld-servers.net., b.gtld-servers.net.)
-192.5.6.30 (example.com A, referral → a.iana-servers.net., b.iana-servers.net.)
-199.43.135.53 (example.com A, A 93.184.216.34)
+example.com A
+  . (a.root-servers.net)
+    └── com. (a.gtld-servers.net)
+        └── example.com. (a.iana-servers.net)
+            └── A 93.184.216.34
 ```
 
 ### MX records
