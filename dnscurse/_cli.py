@@ -20,6 +20,8 @@ from .models import (
     is_referral,
 )
 from .resolver import resolve
+from .ui.output import OUTPUTTERS
+from .ui.output.exceptions import NoResolutionSteps
 
 # Common query types for CLI choices
 _CLI_TYPES = ["A", "AAAA", "NS", "CNAME", "SOA", "MX", "TXT", "PTR"]
@@ -43,9 +45,15 @@ def main(argv: list[str] | None = None) -> int:
         help="Per-query UDP timeout in seconds (default: 5)",
     )
     parser.add_argument(
+        "-o", "--output",
+        default="short",
+        choices=OUTPUTTERS.keys(),
+        help="Output format (default: short)",
+    )
+    parser.add_argument(
         "-c", "--compact",
         action="store_true",
-        help="Compact tree view of the delegation chain",
+        help="Compact tree view of the delegation chain (sets output=compact)",
     )
 
     args = parser.parse_args(argv)
@@ -62,39 +70,18 @@ def main(argv: list[str] | None = None) -> int:
 
     steps = resolve(args.domain, rdtype, timeout=args.timeout)
 
-    if not steps:
-        print("No resolution steps.")
-        return 1
-
-    color = sys.stdout.isatty()
-
     if args.compact:
-        print(_format_tree(steps, color=color))
-        return 0
+        args.output="compact"
 
-    prev_zone: str | None = None
-    for step_idx, step in enumerate(steps):
-        print(_format_step_block(step, color=color, parent_zone=prev_zone, step_idx=step_idx))
-        prev_zone = get_delegated_zone(step)
-
-    # Final answer summary
-    final = steps[-1]
-    if final.response and final.response.answer:
-        print("  Answer:")
-        for rrset in final.response.answer:
-            for line in format_rrset(rrset):
-                print(f"    {line}")
-    elif final.error:
-        print(f"  Resolution failed: {final.error}")
-    elif final.response and final.response.rcode() != dns.rcode.NOERROR:
-        print(f"  {dns.rcode.to_text(final.response.rcode())}")
-    else:
-        print("  No answer found.")
-
-    total_ms = sum(s.rtt_ms for s in steps if s.rtt_ms is not None)
-    print(f"\n  {len(steps)} steps, {total_ms:.1f}ms total")
-
-    return 0
+    OutputterClass = OUTPUTTERS.get(args.output)
+    if not OutputterClass:
+        print(f"no OutputterClass found for output {args.output}, falling back to short")
+        OutputterClass = OUTPUTTERS.get("short")
+    try:
+        print(OutputterClass(steps).output())
+    except NoResolutionSteps as e:
+        print(e)
+        return 1
 
 
 if __name__ == "__main__":
