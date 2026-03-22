@@ -54,7 +54,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         dns.name.from_text(args.domain)
     except (dns.exception.DNSException, ValueError) as exc:
-        print(f"error: invalid domain name '{args.domain}': {exc}", file=sys.stderr)
+        print(
+            f"error: invalid domain name '{args.domain}': {exc}",
+            file=sys.stderr
+        )
         return 1
 
     steps = resolve(args.domain, rdtype, timeout=args.timeout)
