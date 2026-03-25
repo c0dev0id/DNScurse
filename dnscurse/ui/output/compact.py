@@ -1,6 +1,6 @@
 # dnscurse/ui/output/compact.py
-from .short import ShortOutputter
 from . import helpers
+from .short import ShortOutputter
 
 
 class CompactOutputter(ShortOutputter):

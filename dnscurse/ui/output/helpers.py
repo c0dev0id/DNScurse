@@ -1,7 +1,9 @@
 # dnscurse/ui/output/helpers.py
 
 import sys
+
 import dns
+
 from ... import models
 
 # ANSI escape codes for terminal color output

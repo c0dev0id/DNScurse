@@ -1,9 +1,9 @@
 # dnscurse/ui/output/short.py
-import sys
+import dns
+
 from ... import models
 from . import helpers
 from .base import Outputter
-import dns
 
 
 class ShortOutputter(Outputter):

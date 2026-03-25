@@ -1,12 +1,14 @@
 # dnscurse/ui/output/base.py
 import sys
+
 from .exceptions import NoResolutionSteps
 
+
 class Outputter:
-    def __init__(self, steps, compact=False, out=sys.stdout):
+    def __init__(self, steps, compact=False, out=None):
         self.steps = steps
         self.compact = compact
-        self.out = out
+        self.out = out if out is not None else sys.stdout
 
     def output(self) -> int:
         """High-level entry point."""
