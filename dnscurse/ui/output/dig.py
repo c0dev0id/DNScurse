@@ -1,6 +1,7 @@
 # dnscurse/ui/output/dig.py
 from .base import Outputter
 
+
 class DigOutputter(Outputter):
     def _output_steps(self) -> int:
         # implement dig-style output here
