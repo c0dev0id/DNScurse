@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 import sys
-
+git push --force-with-lease origin copilot/rewrite-last-commit-description
 import dns.exception
 import dns.name
 import dns.rcode
