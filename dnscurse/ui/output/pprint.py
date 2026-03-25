@@ -1,6 +1,7 @@
 # dnscurse/ui/output/pp.py
-from .base import Outputter
 import pprint
+
+from .base import Outputter
 
 
 class PprintOutputter(Outputter):

@@ -10,15 +10,6 @@ import dns.name
 import dns.rcode
 import dns.rdatatype
 
-from .models import (
-    RecursionStep,
-    format_rrset,
-    get_cname_target,
-    get_delegated_zone,
-    get_referral_ns_names,
-    get_referral_ns_servers,
-    is_referral,
-)
 from .resolver import resolve
 from .ui.output import OUTPUTTERS
 from .ui.output.exceptions import NoResolutionSteps
@@ -78,10 +69,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"no OutputterClass found for output {args.output}, falling back to short")
         OutputterClass = OUTPUTTERS.get("short")
     try:
-        print(OutputterClass(steps).output())
+        OutputterClass(steps).output()
     except NoResolutionSteps as e:
         print(e)
         return 1
+    return 0
 
 
 if __name__ == "__main__":

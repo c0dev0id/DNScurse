@@ -1,9 +1,9 @@
 # Explicitly import subclasses you want to expose
-from .pprint import PprintOutputter
-from .short import ShortOutputter
+from .base import Outputter
 from .compact import CompactOutputter
 from .dig import DigOutputter
-from .base import Outputter
+from .pprint import PprintOutputter
+from .short import ShortOutputter
 
 # Optionally provide a registry for dynamic lookup
 OUTPUTTERS = {
